@@ -1,0 +1,64 @@
+{
+  "name": "@paymos/sdk",
+  "version": "1.0.0",
+  "description": "Official TypeScript and JavaScript SDK for the Paymos Merchant API",
+  "keywords": [
+    "paymos",
+    "payments",
+    "stablecoins",
+    "usdt",
+    "usdc",
+    "crypto",
+    "sdk"
+  ],
+  "homepage": "https://paymos.io/docs/quick-start",
+  "bugs": "https://github.com/Paymos-labs/typescript-sdk/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Paymos-labs/typescript-sdk.git"
+  },
+  "license": "MIT",
+  "author": "Paymos Labs <support@paymos.io>",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "prepack": "npm run check && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^3.2.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
