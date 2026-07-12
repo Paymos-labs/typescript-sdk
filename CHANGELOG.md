@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.1] - 2026-07-12
+
+- fix(release): align Ruby metadata and retry npm publication
+
 ## [2.0.0] - 2026-07-12
 
 - feat(sdk): harden official package release gates
