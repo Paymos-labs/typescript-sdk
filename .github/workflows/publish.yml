@@ -1,0 +1,44 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Verify immutable release version
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          actual="$(node -p 'require("./package.json").version')"
+          test "$actual" = "$expected"
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - name: Test packed ESM and CommonJS entry points
+        run: |
+          mkdir -p /tmp/paymos-package /tmp/paymos-consumer
+          npm pack --pack-destination /tmp/paymos-package
+          cd /tmp/paymos-consumer
+          npm init -y >/dev/null
+          npm install /tmp/paymos-package/paymos-sdk-*.tgz >/dev/null
+          node -e 'process.exit(typeof require("@paymos/sdk").Paymos === "function" ? 0 : 1)'
+          node --input-type=module -e 'import { Paymos } from "@paymos/sdk"; process.exit(typeof Paymos === "function" ? 0 : 1)'
+          cd "$GITHUB_WORKSPACE"
+      - run: npm publish --access public
