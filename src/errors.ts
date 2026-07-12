@@ -1,4 +1,5 @@
 import type { ProblemDetails, ProblemError } from "./types.js";
+import { fromWire } from "./wire.js";
 
 export class PaymosError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -73,7 +74,7 @@ function parseProblem(body: string): ProblemDetails | null {
   if (!body) return null;
   try {
     const parsed: unknown = JSON.parse(body);
-    return parsed !== null && typeof parsed === "object" ? (parsed as ProblemDetails) : null;
+    return parsed !== null && typeof parsed === "object" ? fromWire<ProblemDetails>(parsed) : null;
   } catch {
     return null;
   }

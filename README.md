@@ -1,6 +1,6 @@
 # Paymos TypeScript SDK
 
-Official server-side TypeScript and JavaScript SDK for the [Paymos Merchant API](https://paymos.io/docs/quick-start).
+Official server-side TypeScript and JavaScript SDK for the [Paymos Merchant API](https://paymos.io/docs/server-sdks).
 
 > Do not use an API secret in browser or mobile code. This package targets trusted Node.js backends and serverless runtimes with Node.js crypto support.
 
@@ -23,13 +23,13 @@ const paymos = new Paymos({
 });
 
 const invoice = await paymos.invoices.create({
-  project_id: "prj_xxxxxxxxxxxx",
+  projectId: "prj_xxxxxxxxxxxx",
   amount: "49.95",
   currency: "USD",
-  external_order_id: externalOrderId("order"),
+  externalOrderId: externalOrderId("order"),
 });
 
-console.log(invoice.payment_url);
+console.log(invoice.paymentUrl);
 ```
 
 Use decimal strings for money. Never convert API amounts to JavaScript `number`.
@@ -38,13 +38,13 @@ Use decimal strings for money. Never convert API amounts to JavaScript `number`.
 
 ```ts
 const page = await paymos.invoices.list({
-  project_id: "prj_xxxxxxxxxxxx",
+  projectId: "prj_xxxxxxxxxxxx",
   status: ["paid", "paid_over"],
   limit: 50,
 });
 
 for await (const invoice of paymos.invoices.iterate({ status: ["paid"] }, 10)) {
-  console.log(invoice.invoice_id);
+  console.log(invoice.invoiceId);
 }
 ```
 
@@ -54,11 +54,11 @@ The API uses opaque forward-only cursors. The second `iterate` argument is a cli
 
 ```ts
 const withdrawal = await paymos.withdrawals.create({
-  destination_address: "TRX...whitelisted...address",
-  network: "tron",
+  destinationAddress: "TRX...whitelisted...address",
+  network: "TRC20",
   currency: "USDT",
   amount: "50.00",
-  external_order_id: externalOrderId("payout"),
+  externalOrderId: externalOrderId("payout"),
 });
 
 const balances = await paymos.balances.get();
@@ -79,9 +79,9 @@ const event = verifier.constructEvent(
   rawBody,
 );
 
-switch (event.event_type) {
+switch (event.eventType) {
   case "invoice.paid":
-    // Fulfil idempotently by event.event_id.
+    // Fulfil idempotently by event.eventId.
     break;
 }
 ```
@@ -106,7 +106,7 @@ The SDK retries `429` responses and retries `5xx` only for idempotent methods. I
 
 ## Links
 
-- [API documentation](https://paymos.io/docs/quick-start)
+- [API documentation](https://paymos.io/docs/server-sdks)
 - [Invoices](https://paymos.io/docs/invoices/create)
 - [Withdrawals](https://paymos.io/docs/withdrawals/create)
 - [Webhooks](https://paymos.io/docs/webhooks)

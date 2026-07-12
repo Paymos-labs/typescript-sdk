@@ -19,11 +19,55 @@ describe("Paymos client", () => {
 
     await expect(client.invoices.list({ status: ["paid_over", "paid"], limit: 50 })).resolves.toEqual({
       items: [],
-      next_cursor: null,
+      nextCursor: null,
     });
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://api.paymos.io/v1/invoices?limit=50&status=paid&status=paid_over");
     expect(new Headers(init?.headers).get("authorization")).toMatch(/^HMAC-SHA256 pk_test_key:/);
+  });
+
+  it("maps nested wire response fields to idiomatic camelCase", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({
+        invoice_id: "inv_1",
+        payment_url: "https://paymos.io/invoice/inv_1",
+        order: { external_id: "order_1", client_id: "customer_1" },
+      })),
+    );
+    const client = new Paymos({
+      apiKey: "pk_test_key",
+      apiSecret: "sk_test_secret",
+      fetch: fetchMock,
+      retry: false,
+    });
+
+    const invoice = await client.invoices.get("inv_1");
+
+    expect(invoice).toMatchObject({
+      invoiceId: "inv_1",
+      paymentUrl: "https://paymos.io/invoice/inv_1",
+      order: { externalId: "order_1", clientId: "customer_1" },
+    });
+  });
+
+  it("does not silently overwrite colliding field names", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new Paymos({
+      apiKey: "pk_test_key",
+      apiSecret: "sk_test_secret",
+      fetch: fetchMock,
+      retry: false,
+    });
+    const params = {
+      projectId: "prj_1",
+      amount: "10.00",
+      currency: "USD",
+      externalOrderId: "order_1",
+      external_order_id: "collision",
+    };
+
+    await expect(client.invoices.create(params)).rejects.toThrow("Duplicate Paymos field");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("maps RFC 9457 rate limit responses", async () => {
@@ -59,7 +103,7 @@ describe("Paymos client", () => {
     });
 
     const ids: string[] = [];
-    for await (const invoice of client.invoices.iterate({}, 2)) ids.push(invoice.invoice_id);
+    for await (const invoice of client.invoices.iterate({}, 2)) ids.push(invoice.invoiceId);
     expect(ids).toEqual(["inv_1", "inv_2"]);
     expect(fetchMock.mock.calls[1]?.[0]).toBe("https://api.paymos.io/v1/invoices?cursor=next");
   });

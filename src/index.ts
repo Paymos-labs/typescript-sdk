@@ -1,17 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { HttpClient, type ClientOptions } from "./http.js";
-import { BalancesResource, InvoicesResource, WithdrawalsResource } from "./resources.js";
+import { BalancesResource, InvoicesResource, SystemResource, WithdrawalsResource } from "./resources.js";
 
 export class Paymos {
   readonly invoices: InvoicesResource;
   readonly withdrawals: WithdrawalsResource;
   readonly balances: BalancesResource;
+  readonly system: SystemResource;
 
   constructor(options: ClientOptions) {
     const http = new HttpClient(options);
     this.invoices = new InvoicesResource(http);
     this.withdrawals = new WithdrawalsResource(http);
     this.balances = new BalancesResource(http);
+    this.system = new SystemResource(http);
   }
 }
 
@@ -27,3 +29,4 @@ export * from "./errors.js";
 export * from "./signing.js";
 export * from "./types.js";
 export * from "./webhooks.js";
+export { SDK_VERSION } from "./version.js";

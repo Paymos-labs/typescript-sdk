@@ -1,5 +1,7 @@
 import { apiErrorFromResponse, ConfigurationError, PaymosError } from "./errors.js";
 import { authorizationHeader } from "./signing.js";
+import { SDK_VERSION } from "./version.js";
+import { fromWire, toWire } from "./wire.js";
 
 export interface RetryOptions {
   maxRetries?: number;
@@ -35,7 +37,7 @@ export class HttpClient {
   }
 
   async request<T>(method: string, path: string, payload?: unknown, query = ""): Promise<T> {
-    const body = payload === undefined ? "" : JSON.stringify(payload);
+    const body = payload === undefined ? "" : JSON.stringify(toWire(payload));
     const url = `${this.options.baseUrl}${path}${query}`;
     let attempt = 0;
 
@@ -54,7 +56,7 @@ export class HttpClient {
         "X-Request-Timestamp": timestamp,
         "Content-Type": "application/json",
         Accept: "application/json",
-        "User-Agent": "paymos-typescript/1.0.0",
+        "User-Agent": `paymos-typescript/${SDK_VERSION}`,
       });
 
       const controller = new AbortController();
@@ -80,6 +82,7 @@ export class HttpClient {
 
       if (shouldRetry(method, response.status) && attempt < this.options.maxRetries) {
         const retryAfter = retryAfterMs(response.headers.get("retry-after"));
+        await response.body?.cancel();
         await sleep(Math.max(backoff(this.options.baseDelayMs, ++attempt), retryAfter ?? 0));
         continue;
       }
@@ -88,7 +91,7 @@ export class HttpClient {
       if (!response.ok) throw apiErrorFromResponse(response.status, responseBody, response.headers);
       if (responseBody === "") return {} as T;
       try {
-        return JSON.parse(responseBody) as T;
+        return fromWire<T>(JSON.parse(responseBody));
       } catch (error) {
         throw new PaymosError("Paymos API returned invalid JSON.", { cause: error });
       }

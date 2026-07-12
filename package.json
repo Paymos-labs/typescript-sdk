@@ -1,6 +1,6 @@
 {
   "name": "@paymos/sdk",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Official TypeScript and JavaScript SDK for the Paymos Merchant API",
   "keywords": [
     "paymos",
@@ -11,7 +11,7 @@
     "crypto",
     "sdk"
   ],
-  "homepage": "https://paymos.io/docs/quick-start",
+  "homepage": "https://paymos.io/docs/server-sdks",
   "bugs": "https://github.com/Paymos-labs/typescript-sdk/issues",
   "repository": {
     "type": "git",
@@ -25,9 +25,14 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "files": [

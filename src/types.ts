@@ -18,138 +18,173 @@ export type WithdrawalStatus =
   | "failed"
   | "cancelled";
 
+export type NetworkCode =
+  | "TRC20"
+  | "ERC20"
+  | "BEP20"
+  | "POLYGON"
+  | "ARBITRUM"
+  | "OPTIMISM"
+  | "BASE"
+  | "TON"
+  | "AVAX"
+  | "SOL"
+  | "NEAR"
+  | "SUI"
+  | "PLASMA"
+  | (string & {});
+
+export type InvoiceEventType =
+  | "invoice.awaiting_payment"
+  | "invoice.confirming"
+  | "invoice.underpaid_waiting"
+  | "invoice.paid"
+  | "invoice.paid_over"
+  | "invoice.underpaid"
+  | "invoice.expired"
+  | "invoice.cancelled";
+
+export type WithdrawalEventType =
+  | "withdrawal.created"
+  | "withdrawal.processing"
+  | "withdrawal.completed"
+  | "withdrawal.failed"
+  | "withdrawal.cancelled";
+
+export type WebhookEventType = InvoiceEventType | WithdrawalEventType | (string & {});
+
 export interface CreateInvoiceParams {
-  project_id: string;
+  projectId: string;
   amount: string;
   currency: string;
-  external_order_id: string;
-  network?: string | null;
-  allow_multiple_payments?: boolean;
-  customer_fee_percent?: number | null;
-  client_id?: string | null;
+  externalOrderId: string;
+  network?: NetworkCode | null;
+  allowMultiplePayments?: boolean;
+  customerFeePercent?: number | null;
+  clientId?: string | null;
 }
 
 export interface ConfirmPaymentParams {
   currency: string;
-  network: string;
+  network: NetworkCode;
 }
 
 export interface Order {
-  external_id: string;
-  client_id: string | null;
+  externalId: string;
+  clientId?: string;
   amount: string;
   currency: string;
-  network: string | null;
+  network?: NetworkCode;
 }
 
 export interface Transfer {
-  tx_hash: string;
+  txHash: string;
   amount: string;
-  status: string;
-  created_at: string;
-  confirmed_at: string | null;
-  required_confirmations: number | null;
-  estimated_confirmation_at: string | null;
-  explorer_url: string | null;
+  status: "confirming" | "confirmed";
+  createdAt: number;
+  confirmedAt?: number;
+  requiredConfirmations?: number;
+  estimatedConfirmationAt?: number;
+  explorerUrl?: string;
 }
 
 export interface Payment {
   currency: string;
-  network: string;
-  chain_id: number;
-  contract_address: string | null;
+  network: NetworkCode;
+  chainId: number;
+  contractAddress?: string;
   expected: string;
-  address: string | null;
-  exchange_rate: string | null;
-  paid: string | null;
-  remaining: string | null;
-  fee: string | null;
-  net: string | null;
-  transfers: Transfer[] | null;
+  address?: string;
+  exchangeRate?: string;
+  paid?: string;
+  remaining?: string;
+  fee?: string;
+  net?: string;
+  transfers?: Transfer[];
 }
 
 export interface Invoice {
-  invoice_id: string;
-  project_id: string;
+  invoiceId: string;
+  projectId: string;
   status: InvoiceStatus;
-  is_final: boolean;
-  is_test: boolean;
-  payment_url: string;
+  isFinal: boolean;
+  isTest: boolean;
+  paymentUrl: string;
   order: Order;
-  payment: Payment | null;
-  created_at: string;
-  updated_at: string;
-  expires_at: string | null;
-  completed_at: string | null;
+  payment?: Payment;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt?: number;
+  completedAt?: number;
 }
 
 export interface InvoiceListItem {
-  invoice_id: string;
-  project_id: string;
-  external_order_id: string;
-  client_id: string | null;
+  invoiceId: string;
+  projectId: string;
+  externalOrderId: string;
+  clientId?: string;
   status: InvoiceStatus;
-  is_final: boolean;
-  is_test: boolean;
+  isFinal: boolean;
+  isTest: boolean;
   amount: string;
   currency: string;
-  network: string | null;
-  created_at: string;
-  expires_at: string | null;
-  completed_at: string | null;
+  network?: NetworkCode;
+  createdAt: number;
+  expiresAt?: number;
+  completedAt?: number;
 }
 
 export interface ListInvoicesParams {
   limit?: number;
   cursor?: string;
   status?: InvoiceStatus[];
-  external_order_id?: string;
-  project_id?: string;
-  created_from?: number;
-  created_to?: number;
+  externalOrderId?: string;
+  projectId?: string;
+  createdFrom?: number;
+  createdTo?: number;
 }
 
 export interface CreateWithdrawalParams {
-  destination_address: string;
-  network: string;
+  destinationAddress: string;
+  network: NetworkCode;
   currency: string;
   amount: string;
-  external_order_id: string;
+  externalOrderId: string;
 }
 
 export interface Withdrawal {
-  withdrawal_id: string;
-  external_order_id: string;
+  withdrawalId: string;
+  externalOrderId: string;
   status: WithdrawalStatus;
-  is_final: boolean;
-  is_test: boolean;
+  isFinal: boolean;
+  isTest: boolean;
   amount: string;
-  fee: string | null;
+  fee?: string;
   currency: string;
-  network: string;
-  destination_address: string;
-  tx_hash: string | null;
-  explorer_url: string | null;
-  created_at: string;
-  completed_at: string | null;
-  failed_at: string | null;
-  cancelled_at: string | null;
+  network: NetworkCode;
+  destinationAddress: string;
+  txHash?: string;
+  explorerUrl?: string;
+  createdAt: number;
+  completedAt?: number;
+  failedAt?: number;
+  cancelledAt?: number;
 }
 
-export type WithdrawalListItem = Omit<Withdrawal, "tx_hash" | "explorer_url">;
+export type WithdrawalListItem = Omit<Withdrawal, "txHash" | "explorerUrl">;
 
 export interface ListWithdrawalsParams {
   limit?: number;
   cursor?: string;
   status?: WithdrawalStatus[];
-  external_order_id?: string;
-  created_from?: number;
-  created_to?: number;
+  externalOrderId?: string;
+  createdFrom?: number;
+  createdTo?: number;
 }
 
 export interface CursorPage<T> {
   items: T[];
-  next_cursor: string | null;
+  nextCursor: string | null;
 }
 
 export interface Balance {
@@ -171,12 +206,13 @@ export interface ProblemDetails {
   code?: string;
   field?: string | null;
   errors?: ProblemError[];
-  trace_id?: string;
+  traceId?: string;
 }
 
 export interface WebhookEvent<T = unknown> {
-  event_id: string;
-  event_type: string;
-  created_at: string;
+  eventId: string;
+  eventType: WebhookEventType;
+  version: number;
+  occurredAt: number;
   data: T;
 }

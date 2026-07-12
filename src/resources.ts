@@ -1,5 +1,6 @@
 import type { HttpClient } from "./http.js";
 import { buildQuery, encodePathSegment } from "./signing.js";
+import { toWire } from "./wire.js";
 import type {
   Balance,
   ConfirmPaymentParams,
@@ -26,7 +27,7 @@ export class InvoicesResource {
   }
 
   list(params: ListInvoicesParams = {}): Promise<CursorPage<InvoiceListItem>> {
-    return this.http.request("GET", "/v1/invoices", undefined, buildQuery(params));
+    return this.http.request("GET", "/v1/invoices", undefined, buildQuery(toWire(params) as Record<string, unknown>));
   }
 
   async *iterate(params: ListInvoicesParams = {}, maxPages = 100): AsyncGenerator<InvoiceListItem> {
@@ -35,7 +36,7 @@ export class InvoicesResource {
     for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
       const page = await this.list(cursor === undefined ? params : { ...params, cursor });
       yield* page.items;
-      const next = page.next_cursor || undefined;
+      const next = page.nextCursor || undefined;
       if (next === undefined) return;
       if (next === cursor) throw new Error("Paymos API returned the same pagination cursor twice.");
       cursor = next;
@@ -70,7 +71,7 @@ export class WithdrawalsResource {
   }
 
   list(params: ListWithdrawalsParams = {}): Promise<CursorPage<WithdrawalListItem>> {
-    return this.http.request("GET", "/v1/withdrawals", undefined, buildQuery(params));
+    return this.http.request("GET", "/v1/withdrawals", undefined, buildQuery(toWire(params) as Record<string, unknown>));
   }
 
   async *iterate(params: ListWithdrawalsParams = {}, maxPages = 100): AsyncGenerator<WithdrawalListItem> {
@@ -79,7 +80,7 @@ export class WithdrawalsResource {
     for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
       const page = await this.list(cursor === undefined ? params : { ...params, cursor });
       yield* page.items;
-      const next = page.next_cursor || undefined;
+      const next = page.nextCursor || undefined;
       if (next === undefined) return;
       if (next === cursor) throw new Error("Paymos API returned the same pagination cursor twice.");
       cursor = next;
@@ -104,6 +105,14 @@ export class BalancesResource {
 
   get(): Promise<Balance[]> {
     return this.http.request("GET", "/v1/balances");
+  }
+}
+
+export class SystemResource {
+  constructor(private readonly http: HttpClient) {}
+
+  time(): Promise<{ serverTime: number }> {
+    return this.http.request("GET", "/v1/time");
   }
 }
 

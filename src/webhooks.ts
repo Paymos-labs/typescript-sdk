@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { SignatureMismatchError, TimestampSkewError } from "./errors.js";
 import type { WebhookEvent } from "./types.js";
+import { fromWire } from "./wire.js";
 
 export class WebhookVerifier {
   constructor(
@@ -50,8 +51,11 @@ export class WebhookVerifier {
   ): WebhookEvent<T> {
     this.assertValid(signatureHeader, rawBody, now);
     try {
-      return JSON.parse(rawBody.toString()) as WebhookEvent<T>;
+      const event = fromWire<unknown>(JSON.parse(rawBody.toString()));
+      assertEventEnvelope(event);
+      return event as WebhookEvent<T>;
     } catch (error) {
+      if (error instanceof TypeError) throw error;
       throw new TypeError("Webhook payload is not valid JSON.", { cause: error });
     }
   }
@@ -60,14 +64,40 @@ export class WebhookVerifier {
 function parseHeader(header: string): { timestamp: number; signatures: string[] } | null {
   if (typeof header !== "string") return null;
   let timestamp: number | undefined;
+  let timestampCount = 0;
   const signatures: string[] = [];
   for (const part of header.split(",")) {
     const separator = part.indexOf("=");
     if (separator < 1) continue;
     const key = part.slice(0, separator).trim();
     const value = part.slice(separator + 1).trim();
-    if (key === "t" && /^\d+$/.test(value)) timestamp = Number(value);
+    if (key === "t" && /^\d+$/.test(value)) {
+      timestamp = Number(value);
+      timestampCount += 1;
+    }
     if (key === "v1" && value !== "") signatures.push(value);
   }
-  return timestamp === undefined || signatures.length === 0 ? null : { timestamp, signatures };
+  return timestamp === undefined || timestampCount !== 1 || !Number.isSafeInteger(timestamp) || signatures.length === 0
+    ? null
+    : { timestamp, signatures };
+}
+
+function assertEventEnvelope(value: unknown): asserts value is WebhookEvent<unknown> {
+  if (value === null || typeof value !== "object") throw new TypeError("Webhook payload must be an object.");
+  const event = value as Record<string, unknown>;
+  if (typeof event.eventId !== "string" || event.eventId.trim() === "") {
+    throw new TypeError("Webhook eventId must be a non-empty string.");
+  }
+  if (typeof event.eventType !== "string" || event.eventType.trim() === "") {
+    throw new TypeError("Webhook eventType must be a non-empty string.");
+  }
+  if (!Number.isSafeInteger(event.version) || (event.version as number) < 1) {
+    throw new TypeError("Webhook version must be a positive integer.");
+  }
+  if (!Number.isSafeInteger(event.occurredAt) || (event.occurredAt as number) < 0) {
+    throw new TypeError("Webhook occurredAt must be a non-negative Unix timestamp.");
+  }
+  if (event.data === null || typeof event.data !== "object") {
+    throw new TypeError("Webhook data must be an object.");
+  }
 }
