@@ -19,8 +19,8 @@ export class ApiError extends PaymosError {
   readonly problem: ProblemDetails | null;
 
   constructor(status: number, body: string, headers: Headers) {
-    const problem = parseProblem(body);
-    const detail = problem?.detail ?? problem?.errors?.[0]?.message ?? problem?.code ?? problem?.title;
+    const problem = parseProblem(status, body);
+    const detail = problem?.detail || problem?.code || problem?.title;
     super(`Paymos API ${status}: ${detail || body || "empty response"}`);
     this.status = status;
     this.body = body;
@@ -29,11 +29,11 @@ export class ApiError extends PaymosError {
   }
 
   get code(): string {
-    return this.problem?.errors?.[0]?.code ?? this.problem?.code ?? "";
+    return this.problem?.code ?? "";
   }
 
   get field(): string | null {
-    return this.problem?.errors?.[0]?.field ?? this.problem?.field ?? null;
+    return this.problem?.field ?? null;
   }
 
   get errors(): readonly ProblemError[] {
@@ -70,11 +70,21 @@ export function apiErrorFromResponse(status: number, body: string, headers: Head
   return new ApiError(status, body, headers);
 }
 
-function parseProblem(body: string): ProblemDetails | null {
+function parseProblem(status: number, body: string): ProblemDetails | null {
   if (!body) return null;
   try {
     const parsed: unknown = JSON.parse(body);
-    return parsed !== null && typeof parsed === "object" ? fromWire<ProblemDetails>(parsed) : null;
+    if (parsed === null || typeof parsed !== "object") return null;
+    const problem = fromWire<ProblemDetails>(parsed);
+    return typeof problem.type === "string"
+      && typeof problem.title === "string"
+      && typeof problem.status === "number"
+      && Number.isInteger(problem.status)
+      && problem.status === status
+      && typeof problem.detail === "string"
+      && typeof problem.code === "string"
+      ? problem
+      : null;
   } catch {
     return null;
   }

@@ -194,16 +194,16 @@ export interface Balance {
 
 export interface ProblemError {
   code: string;
-  field: string | null;
+  field?: string | null;
   message: string;
 }
 
 export interface ProblemDetails {
-  type?: string;
-  title?: string;
-  status?: number;
-  detail?: string;
-  code?: string;
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+  code: string;
   field?: string | null;
   errors?: ProblemError[];
   traceId?: string;
