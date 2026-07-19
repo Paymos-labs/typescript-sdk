@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.3] - 2026-07-19
+
+- fix: align SDK problem details semantics
+
 ## [2.0.2] - 2026-07-12
 
 - fix(typescript-sdk): retry trusted npm publication

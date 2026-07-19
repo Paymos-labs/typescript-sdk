@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { authorizationHeader, buildQuery, WebhookVerifier } from "../src/index.js";
+import { apiErrorFromResponse, authorizationHeader, buildQuery, WebhookVerifier } from "../src/index.js";
 
 const contract = JSON.parse(
   readFileSync(new URL("../conformance/contract.json", import.meta.url), "utf8"),
@@ -10,6 +10,10 @@ const contract = JSON.parse(
     post_signing: SigningVector & { authorization: string };
     get_query_signing: SigningVector & { signature: string };
     webhook: { secret: string; header: string; raw_body: string; now: number; tolerance_seconds: number };
+    problem_details: {
+      flat: Record<string, unknown>;
+      multi: Record<string, unknown> & { errors: Array<Record<string, unknown>> };
+    };
   };
 };
 
@@ -43,5 +47,18 @@ describe("shared SDK conformance", () => {
 
   it("pins the complete operation count", () => {
     expect(Object.values(contract.resources).flat()).toHaveLength(13);
+  });
+
+  it("keeps top-level problem code authoritative", () => {
+    const vector = contract.vectors.problem_details.multi;
+    const error = apiErrorFromResponse(400, JSON.stringify(vector), new Headers());
+
+    expect(error.problem).toMatchObject({
+      type: "about:blank", title: "Bad Request", status: 400,
+      detail: "Validation failed.", code: "validation_failed",
+    });
+    expect(error.code).toBe("validation_failed");
+    expect(error.field).toBeNull();
+    expect(error.errors[0]?.code).toBe("field_required");
   });
 });

@@ -72,7 +72,13 @@ describe("Paymos client", () => {
 
   it("maps RFC 9457 rate limit responses", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ title: "Too Many Requests", status: 429, code: "rate_limited" }), {
+      new Response(JSON.stringify({
+        type: "about:blank",
+        title: "Too Many Requests",
+        status: 429,
+        detail: "Retry later.",
+        code: "rate_limited",
+      }), {
         status: 429,
         headers: { "retry-after": "7" },
       }),
