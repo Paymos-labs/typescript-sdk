@@ -18,6 +18,12 @@ export type WithdrawalStatus =
   | "failed"
   | "cancelled";
 
+export type PaymentChannelStatus = "active" | "blocked" | "provisioning";
+
+export type PaymentChannelNetworkStatus = "provisioning" | "active";
+
+export type PaymentChannelDepositStatus = "confirming" | "reorged" | "confirmed";
+
 export type NetworkCode =
   | "TRC20"
   | "ERC20"
@@ -51,7 +57,27 @@ export type WithdrawalEventType =
   | "withdrawal.failed"
   | "withdrawal.cancelled";
 
-export type WebhookEventType = InvoiceEventType | WithdrawalEventType | (string & {});
+/**
+ * The three payment-channel deposit events. Every one of them carries a full
+ * {@link PaymentChannelDeposit} as its `data`.
+ *
+ * ORDERING — `confirming` and `reorged` are ADVISORY and may arrive out of order: a
+ * `confirming` can land after the `confirmed` for the same deposit, and a `reorged` can
+ * be superseded by a later `confirmed`. Credit the merchant only on
+ * `payment_channel.deposit.confirmed` with `isFinal` true, and never let an advisory
+ * event regress a deposit already known to be confirmed. Crediting on `confirming`
+ * releases goods against money a reorg can still take back.
+ */
+export type PaymentChannelDepositEventType =
+  | "payment_channel.deposit.confirming"
+  | "payment_channel.deposit.reorged"
+  | "payment_channel.deposit.confirmed";
+
+export type WebhookEventType =
+  | InvoiceEventType
+  | WithdrawalEventType
+  | PaymentChannelDepositEventType
+  | (string & {});
 
 export interface CreateInvoiceParams {
   projectId: string;
@@ -180,6 +206,137 @@ export interface ListWithdrawalsParams {
   externalOrderId?: string;
   createdFrom?: number;
   createdTo?: number;
+}
+
+export interface PaymentChannelToken {
+  symbol: string;
+  /** Absent = cannot quote a minimum right now. NOT "no minimum". */
+  minimumDeposit?: string;
+}
+
+export interface PaymentChannelNetwork {
+  /** Rail code, e.g. "TRC20" — not a chain nickname. */
+  network: NetworkCode;
+  status: PaymentChannelNetworkStatus;
+  /** Absent until this rail provisions; never changes afterwards. */
+  address?: string;
+  tokens: PaymentChannelToken[];
+}
+
+export interface PaymentChannel {
+  id: string;
+  projectId: string;
+  externalId: string;
+  status: PaymentChannelStatus;
+  isAcceptingPayments: boolean;
+  isFullyProvisioned: boolean;
+  isTest: boolean;
+  appliedFeePercent: number;
+  customerFeePercent: number;
+  networks: PaymentChannelNetwork[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * A payment-channel deposit. This is both the API resource and the `data` payload of
+ * every {@link PaymentChannelDepositEventType} webhook, so a handler decodes one with
+ * `verifier.constructEvent<PaymentChannelDeposit>(header, rawBody)`.
+ */
+export interface PaymentChannelDeposit {
+  id: string;
+  paymentChannelId: string;
+  projectId: string;
+  paymentChannelExternalId: string;
+  status: PaymentChannelDepositStatus;
+  isFinal: boolean;
+  isTest: boolean;
+  currency: string;
+  network: NetworkCode;
+  chainId: number;
+  contractAddress?: string;
+  gross: string;
+  fee: string;
+  net: string;
+  appliedFeePercent: number;
+  customerFeePercent: number;
+  txHash: string;
+  transferId: string;
+  sourceAddress?: string;
+  destinationAddress: string;
+  blockHeight: number;
+  firstIncludedBlockTimestamp?: number;
+  explorerUrl?: string;
+  createdAt: number;
+  updatedAt: number;
+  confirmedAt?: number;
+}
+
+/** Stable reason codes; the list is open so a new code never breaks a build. */
+export type PaymentChannelDepositFeedBlockageReason =
+  | "booked_auth_missing"
+  | "inconsistent"
+  | "deposit_missing"
+  | "channel_missing"
+  | "transfer_missing"
+  | "not_confirmed"
+  | (string & {});
+
+/**
+ * Why the feed could not render one position. Absent on every normal page, so it explains
+ * a stall and never causes one: without it a stuck feed is byte-identical to a quiet day.
+ */
+export interface PaymentChannelDepositFeedBlockage {
+  depositId: string;
+  reason: PaymentChannelDepositFeedBlockageReason;
+}
+
+/**
+ * One page of the confirmed-deposit feed. `nextCursor` is NOT optional: the feed never ends,
+ * and an empty page still advances past the global positions this merchant's filter skipped.
+ * Never `break` on it — store it and resume from it on the next poll.
+ */
+export interface PaymentChannelDepositFeedPage {
+  items: PaymentChannelDeposit[];
+  nextCursor: string;
+  blocked?: PaymentChannelDepositFeedBlockage;
+}
+
+export interface CreatePaymentChannelParams {
+  projectId: string;
+  externalId: string;
+}
+
+/** The three stages the sandbox can simulate. */
+export type SimulateDepositStage = "confirming" | "reorged" | "confirmed";
+
+export interface SimulateDepositParams {
+  amount: string;
+  currency: string;
+  /** Required — the rail the simulated deposit lands on, e.g. "TRC20". */
+  network: NetworkCode;
+  /** Omitted defaults to confirmed. */
+  stage?: SimulateDepositStage;
+}
+
+export interface ListPaymentChannelsParams {
+  limit?: number;
+  cursor?: string;
+  status?: PaymentChannelStatus[];
+  externalId?: string;
+  projectId?: string;
+}
+
+/**
+ * `confirmedFrom` is an initial-sync lower bound, not the resume mechanism: it answers
+ * "start me from this point in time" on the very first poll. Afterwards resume from `cursor`.
+ */
+export interface ReadPaymentChannelDepositsParams {
+  limit?: number;
+  cursor?: string;
+  projectId?: string;
+  paymentChannelId?: string;
+  confirmedFrom?: number;
 }
 
 export interface CursorPage<T> {

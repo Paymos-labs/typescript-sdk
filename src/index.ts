@@ -1,10 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { HttpClient, type ClientOptions } from "./http.js";
-import { BalancesResource, InvoicesResource, SystemResource, WithdrawalsResource } from "./resources.js";
+import {
+  BalancesResource,
+  InvoicesResource,
+  PaymentChannelDepositsResource,
+  PaymentChannelsResource,
+  SystemResource,
+  WithdrawalsResource,
+} from "./resources.js";
 
 export class Paymos {
   readonly invoices: InvoicesResource;
   readonly withdrawals: WithdrawalsResource;
+  readonly paymentChannels: PaymentChannelsResource;
+  readonly paymentChannelDeposits: PaymentChannelDepositsResource;
   readonly balances: BalancesResource;
   readonly system: SystemResource;
 
@@ -12,6 +21,8 @@ export class Paymos {
     const http = new HttpClient(options);
     this.invoices = new InvoicesResource(http);
     this.withdrawals = new WithdrawalsResource(http);
+    this.paymentChannels = new PaymentChannelsResource(http);
+    this.paymentChannelDeposits = new PaymentChannelDepositsResource(http);
     this.balances = new BalancesResource(http);
     this.system = new SystemResource(http);
   }

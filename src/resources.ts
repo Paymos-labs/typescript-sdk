@@ -5,12 +5,19 @@ import type {
   Balance,
   ConfirmPaymentParams,
   CreateInvoiceParams,
+  CreatePaymentChannelParams,
   CreateWithdrawalParams,
   CursorPage,
   Invoice,
   InvoiceListItem,
   ListInvoicesParams,
+  ListPaymentChannelsParams,
   ListWithdrawalsParams,
+  PaymentChannel,
+  PaymentChannelDeposit,
+  PaymentChannelDepositFeedPage,
+  ReadPaymentChannelDepositsParams,
+  SimulateDepositParams,
   Withdrawal,
   WithdrawalListItem,
 } from "./types.js";
@@ -96,6 +103,87 @@ export class WithdrawalsResource {
     return this.http.request(
       "POST",
       `/v1/sandbox/withdrawals/${encodePathSegment(withdrawalId)}/simulate-completion`,
+    );
+  }
+}
+
+export class PaymentChannelsResource {
+  constructor(private readonly http: HttpClient) {}
+
+  /**
+   * Create — or fetch. The same project plus external id answers 200 with the channel that
+   * already exists instead of 201 with a duplicate; both are a channel, so a caller never
+   * inspects the status. Safe to call on every checkout.
+   */
+  create(params: CreatePaymentChannelParams): Promise<PaymentChannel> {
+    return this.http.request("POST", "/v1/payment-channels", params);
+  }
+
+  get(paymentChannelId: string): Promise<PaymentChannel> {
+    return this.http.request("GET", `/v1/payment-channels/${encodePathSegment(paymentChannelId)}`);
+  }
+
+  list(params: ListPaymentChannelsParams = {}): Promise<CursorPage<PaymentChannel>> {
+    return this.http.request(
+      "GET",
+      "/v1/payment-channels",
+      undefined,
+      buildQuery(toWire(params) as Record<string, unknown>),
+    );
+  }
+
+  /** An ordinary keyset list: its cursor is null on the last page, so this terminates. */
+  async *iterate(params: ListPaymentChannelsParams = {}, maxPages = 100): AsyncGenerator<PaymentChannel> {
+    assertMaxPages(maxPages);
+    let cursor = params.cursor;
+    for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
+      const page = await this.list(cursor === undefined ? params : { ...params, cursor });
+      yield* page.items;
+      const next = page.nextCursor || undefined;
+      if (next === undefined) return;
+      if (next === cursor) throw new Error("Paymos API returned the same pagination cursor twice.");
+      cursor = next;
+    }
+  }
+
+  /** Returns the updated channel — block is not a void call. */
+  block(paymentChannelId: string): Promise<PaymentChannel> {
+    return this.http.request("POST", `/v1/payment-channels/${encodePathSegment(paymentChannelId)}/block`);
+  }
+
+  unblock(paymentChannelId: string): Promise<PaymentChannel> {
+    return this.http.request("POST", `/v1/payment-channels/${encodePathSegment(paymentChannelId)}/unblock`);
+  }
+
+  /** Sandbox only — a production credential gets an error, not a deposit. */
+  simulateDeposit(paymentChannelId: string, params: SimulateDepositParams): Promise<PaymentChannelDeposit> {
+    return this.http.request(
+      "POST",
+      `/v1/sandbox/payment-channels/${encodePathSegment(paymentChannelId)}/simulate-deposit`,
+      params,
+    );
+  }
+}
+
+export class PaymentChannelDepositsResource {
+  constructor(private readonly http: HttpClient) {}
+
+  get(depositId: string): Promise<PaymentChannelDeposit> {
+    return this.http.request("GET", `/v1/payment-channel-deposits/${encodePathSegment(depositId)}`);
+  }
+
+  /**
+   * Reads ONE page of the confirmed-deposit feed. Deliberately not called `list` and
+   * deliberately without an auto-iterator: the feed has no end, and a helper that looped until
+   * the cursor was empty would either loop forever or, worse, stop on the first quiet page and
+   * leave the merchant's reconciliation silently behind. Store `nextCursor` and poll again.
+   */
+  read(params: ReadPaymentChannelDepositsParams = {}): Promise<PaymentChannelDepositFeedPage> {
+    return this.http.request(
+      "GET",
+      "/v1/payment-channel-deposits",
+      undefined,
+      buildQuery(toWire(params) as Record<string, unknown>),
     );
   }
 }
