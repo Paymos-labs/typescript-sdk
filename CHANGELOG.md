@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-28
+
+- ci: the runner script joins the repo it tests
+- release: the changelog rot had a cause, and it was not the one I named
+- docs(sdk): the READMEs say static wallets, not payment channels
+- feat(sdk): payment-channel webhooks and the flow in every README
+- feat(typescript-sdk): payment channels, and a feed reader that cannot stop early
+- feat(sdk-conformance): declare the payment-channel operations
+- docs(api): pin the empty-body signing rule and fix the published POST vector
+- ci(dependabot): track SDK dependencies at source
+
 ## [2.2.0] - 2026-08-28
 
 - ci: the runner script joins the repo it tests

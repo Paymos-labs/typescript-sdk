@@ -1,6 +1,6 @@
 {
   "name": "@paymos/sdk",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Official TypeScript and JavaScript SDK for the Paymos Merchant API",
   "keywords": [
     "paymos",
