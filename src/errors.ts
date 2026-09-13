@@ -51,6 +51,18 @@ export class ApiError extends PaymosError {
 
 export class ValidationError extends ApiError {}
 export class AuthenticationError extends ApiError {}
+
+/**
+ * A 403: the credential was accepted, something else refused. Deliberately a SUBTYPE of
+ * {@link AuthenticationError} so existing catch-blocks keep working, and deliberately its own
+ * class because the remedy is usually not "fix the key": 403 carries wrong-key-type
+ * (`payout_key_required`, `payment_key_required`, `forbidden`) next to plain business
+ * state (`whitelist_required`, `merchant_suspended`, `widget_inactive`,
+ * `terminal_not_enabled`, `not_sandbox`). An unwhitelisted payout address reported as an
+ * authentication failure sends the on-call engineer to rotate perfectly good credentials.
+ * Switch on {@link ApiError.code} for the specific remedy.
+ */
+export class PermissionError extends AuthenticationError {}
 export class NotFoundError extends ApiError {}
 export class ConflictError extends ApiError {}
 export class GoneError extends ApiError {}
@@ -60,7 +72,8 @@ export class UnavailableError extends ServerError {}
 
 export function apiErrorFromResponse(status: number, body: string, headers: Headers): ApiError {
   if (status === 400) return new ValidationError(status, body, headers);
-  if (status === 401 || status === 403) return new AuthenticationError(status, body, headers);
+  if (status === 401) return new AuthenticationError(status, body, headers);
+  if (status === 403) return new PermissionError(status, body, headers);
   if (status === 404) return new NotFoundError(status, body, headers);
   if (status === 409) return new ConflictError(status, body, headers);
   if (status === 410) return new GoneError(status, body, headers);
