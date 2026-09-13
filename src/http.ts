@@ -99,11 +99,30 @@ export class HttpClient {
   }
 }
 
+// The API secret signs every request, so the base URL decides whether that credential can be
+// read off the wire. HTTPS is the only acceptable answer in production; plain HTTP is allowed
+// solely against a loopback host, which is what a local integration test points at. Mirrors the
+// Rust SDK's validate_base_url: the same rule, worded the same way, in every language.
+function normalizeBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConfigurationError("baseUrl is not a valid URL.");
+  }
+  const host = url.hostname.toLowerCase();
+  const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new ConfigurationError("baseUrl must use HTTPS (HTTP is allowed only for loopback tests).");
+  }
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
 function normalizeOptions(options: ClientOptions): NormalizedOptions {
   if (!options || typeof options !== "object") throw new ConfigurationError("Client options are required.");
   const apiKey = requireString(options.apiKey, "apiKey");
   const apiSecret = requireString(options.apiSecret, "apiSecret");
-  const baseUrl = requireString(options.baseUrl ?? "https://api.paymos.io", "baseUrl").replace(/\/$/, "");
+  const baseUrl = normalizeBaseUrl(requireString(options.baseUrl ?? "https://api.paymos.io", "baseUrl"));
   const timeoutMs = options.timeoutMs ?? 30_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     throw new ConfigurationError("timeoutMs must be a positive integer.");

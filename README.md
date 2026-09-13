@@ -22,17 +22,36 @@ const paymos = new Paymos({
   apiSecret: process.env.PAYMOS_API_SECRET!,
 });
 
+// Mint the idempotency key once per logical order and persist it BEFORE
+// the first call; every retry of this order must reuse the same value.
+const orderId = externalOrderId("order");
+await persistOrderKey(orderId);
+
 const invoice = await paymos.invoices.create({
   projectId: "prj_xxxxxxxxxxxx",
   amount: "49.95",
   currency: "USD",
-  externalOrderId: externalOrderId("order"),
+  externalOrderId: orderId,
 });
 
 console.log(invoice.paymentUrl);
 ```
 
 Use decimal strings for money. Never convert API amounts to JavaScript `number`.
+
+## Idempotency
+
+`invoices.create` and `withdrawals.create` use the request's `externalOrderId` as the
+idempotency key; `paymentChannels.create` uses (`projectId`, `externalId`) the same way.
+Calling the same endpoint again with the same `externalOrderId` returns the existing
+resource instead of creating a duplicate. The SDK never retries these POSTs for you, so
+an unknown outcome — timeout, dropped connection, crash after send — is resolved by
+calling again with the **same** `externalOrderId`.
+
+Mint a key once per logical order with `externalOrderId(prefix)`, persist it before the
+first call, and reuse it for that order's lifetime. Generating a fresh key for a rerun of
+the same order bypasses idempotency and creates a second operation — for withdrawals, a
+second payout.
 
 ## List and iterate
 
@@ -82,12 +101,16 @@ Four things that bite an integrator who guesses:
 ## Withdrawals and balances
 
 ```ts
+// Same rule as invoices: one stable key per payout, persisted before the call.
+const payoutId = externalOrderId("payout");
+await persistPayoutKey(payoutId);
+
 const withdrawal = await paymos.withdrawals.create({
   destinationAddress: "TRX...whitelisted...address",
   network: "TRC20",
   currency: "USDT",
   amount: "50.00",
-  externalOrderId: externalOrderId("payout"),
+  externalOrderId: payoutId,
 });
 
 const balances = await paymos.balances.get();
@@ -148,6 +171,39 @@ try {
 } catch (error) {
   if (error instanceof ValidationError) console.error(error.code, error.field, error.errors);
   if (error instanceof RateLimitError) console.error(error.retryAfterSeconds);
+  throw error;
+}
+```
+
+
+### 401 and 403 are different problems
+
+`AuthenticationError` (401) means the credential is absent, malformed or unverifiable — fix the
+key or the signing clock, and stop retrying. `PermissionError` (403) means the credential was
+accepted and something else refused, and it covers two very different situations:
+
+- **the key is wrong for this call** — `payout_key_required`, `payment_key_required`,
+  `forbidden`;
+- **the key is fine, the account or project state says no** — `whitelist_required`,
+  `merchant_suspended`, `widget_inactive`, `terminal_not_enabled`, `not_sandbox`.
+
+A customer entering a payout address that is not whitelisted yet is the second kind: nothing is
+wrong with your credentials, and paging the on-call engineer about them is the wrong move. Always
+switch on `error.code` before deciding what to do.
+
+`PermissionError` extends `AuthenticationError`, so code written before this split keeps catching
+403 exactly as it did.
+
+```ts
+import { PermissionError } from "@paymos/sdk";
+
+try {
+  await paymos.withdrawals.create(payload);
+} catch (error) {
+  if (error instanceof PermissionError) {
+    if (error.code === "whitelist_required") return askCustomerToWhitelist();
+    return alertOncall(error.code); // wrong key type, blocked IP, suspended merchant
+  }
   throw error;
 }
 ```
