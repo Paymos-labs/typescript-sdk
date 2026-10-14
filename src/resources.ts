@@ -59,7 +59,7 @@ export class InvoicesResource {
     return this.http.request("POST", `/v1/invoices/${encodePathSegment(invoiceId)}/confirm-payment`, params);
   }
 
-  simulatePayment(invoiceId: string, stage: "paid" | "overpaid" | "underpay" | "cancel"): Promise<Invoice> {
+  simulatePayment(invoiceId: string, stage: "paid" | "overpaid" | "underpay" | "cancel" | "paid_late"): Promise<Invoice> {
     return this.http.request("POST", `/v1/sandbox/invoices/${encodePathSegment(invoiceId)}/simulate-payment`, {
       stage,
     });

@@ -48,7 +48,9 @@ export type InvoiceEventType =
   | "invoice.paid_over"
   | "invoice.underpaid"
   | "invoice.expired"
-  | "invoice.cancelled";
+  | "invoice.cancelled"
+  /** invoice-late-payment: the late fact on an already-terminal invoice — a note-worthy event, not a status change. */
+  | "invoice.paid_late";
 
 export type WithdrawalEventType =
   | "withdrawal.created"
@@ -142,6 +144,13 @@ export interface Invoice {
   updatedAt: number;
   expiresAt?: number;
   completedAt?: number;
+  /**
+   * invoice-late-payment: the late-payment fact — money crossed the invoice's total after it had
+   * already closed as expired/underpaid. Unix seconds; the server omits the field while the
+   * invoice has no late mark. The status above keeps its terminal
+   * meaning — this marker travels beside it.
+   */
+  paidLateAt?: number | null;
 }
 
 export interface InvoiceListItem {
@@ -158,6 +167,8 @@ export interface InvoiceListItem {
   createdAt: number;
   expiresAt?: number;
   completedAt?: number;
+  /** invoice-late-payment: additive late mark, Unix seconds; omitted while there is no mark. */
+  paidLateAt?: number | null;
 }
 
 export interface ListInvoicesParams {

@@ -1,6 +1,6 @@
 {
   "name": "@paymos/sdk",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "description": "Official TypeScript and JavaScript SDK for the Paymos Merchant API",
   "keywords": [
     "paymos",
@@ -54,10 +54,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "@vitest/coverage-v8": "^3.2.0",
+    "@vitest/coverage-v8": "^5.0.4",
     "tsup": "^8.5.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0"
+    "vitest": "^5.0.4"
   },
   "overrides": {
     "esbuild": "0.28.1"
