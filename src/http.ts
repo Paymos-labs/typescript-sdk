@@ -59,9 +59,13 @@ export class HttpClient {
         "User-Agent": `paymos-typescript/${SDK_VERSION}`,
       });
 
+      // One deadline spans the whole attempt: send, status inspection and body read. A server that
+      // flushes the headers and then stalls the body is cut off at the same timeout as a stalled
+      // send, so the timer only comes down in the attempt-wide finally below — never between the
+      // response object and response.text().
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.options.timeoutMs);
-      let response: Response;
+      let retryDelayMs: number | undefined;
       try {
         const requestInit: RequestInit = {
           method,
@@ -69,32 +73,45 @@ export class HttpClient {
           signal: controller.signal,
         };
         if (body !== "") requestInit.body = body;
-        response = await this.options.fetch(url, requestInit);
+        const response = await this.options.fetch(url, requestInit);
+
+        if (shouldRetry(method, response.status) && attempt < this.options.maxRetries) {
+          const retryAfter = retryAfterMs(response.headers.get("retry-after"));
+          await response.body?.cancel();
+          retryDelayMs = Math.max(backoff(this.options.baseDelayMs, ++attempt), retryAfter ?? 0);
+        } else {
+          let responseBody: string;
+          try {
+            responseBody = await response.text();
+          } catch (error) {
+            // The deadline fired mid-body (or the body died another way) after the request already
+            // reached the server: the outcome is unknown, so this is never retried — not even for
+            // an idempotent method.
+            throw new PaymosError(`Paymos request failed: ${errorMessage(error)}`, { cause: error });
+          }
+          if (!response.ok) throw apiErrorFromResponse(response.status, responseBody, response.headers);
+          if (responseBody === "") return {} as T;
+          try {
+            return fromWire<T>(JSON.parse(responseBody));
+          } catch (error) {
+            throw new PaymosError("Paymos API returned invalid JSON.", { cause: error });
+          }
+        }
       } catch (error) {
+        if (error instanceof PaymosError) throw error;
         if (attempt >= this.options.maxRetries || !isIdempotent(method)) {
           throw new PaymosError(`Paymos request failed: ${errorMessage(error)}`, { cause: error });
         }
-        await sleep(backoff(this.options.baseDelayMs, ++attempt));
-        continue;
+        retryDelayMs = backoff(this.options.baseDelayMs, ++attempt);
       } finally {
         clearTimeout(timeout);
       }
 
-      if (shouldRetry(method, response.status) && attempt < this.options.maxRetries) {
-        const retryAfter = retryAfterMs(response.headers.get("retry-after"));
-        await response.body?.cancel();
-        await sleep(Math.max(backoff(this.options.baseDelayMs, ++attempt), retryAfter ?? 0));
-        continue;
-      }
-
-      const responseBody = await response.text();
-      if (!response.ok) throw apiErrorFromResponse(response.status, responseBody, response.headers);
-      if (responseBody === "") return {} as T;
-      try {
-        return fromWire<T>(JSON.parse(responseBody));
-      } catch (error) {
-        throw new PaymosError("Paymos API returned invalid JSON.", { cause: error });
-      }
+      // The attempt is over and its deadline released; backing off between attempts is not part
+      // of any attempt's timeout. Every path that falls through the attempt has recorded a
+      // backoff — the guard below only satisfies the type system's narrower view.
+      if (retryDelayMs === undefined) continue;
+      await sleep(retryDelayMs);
     }
   }
 }
