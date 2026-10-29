@@ -11,6 +11,13 @@ const contract = JSON.parse(
     post_empty_body_signing: SigningVector & { authorization: string };
     get_query_signing: SigningVector & { signature: string };
     webhook: { secret: string; header: string; raw_body: string; now: number; tolerance_seconds: number };
+    ton_webhooks: {
+      secret: string; now: number;
+      vectors: Array<{
+        name: string; event_id: string; event_type: string; version: number; header: string; raw_body: string;
+        expect: Array<{ path: string[]; value: string | boolean | number }>;
+      }>;
+    };
     problem_details: {
       flat: Record<string, unknown>;
       multi: Record<string, unknown> & { errors: Array<Record<string, unknown>> };
@@ -52,8 +59,32 @@ describe("shared SDK conformance", () => {
     expect(verifier.verify(vector.header, vector.raw_body, vector.now)).toBe(true);
   });
 
+  it("verifies raw and friendly schema 1 TON events and preserves all address and amount fields", () => {
+    const fixtures = contract.vectors.ton_webhooks;
+    expect(fixtures.vectors).toHaveLength(8);
+    const verifier = new WebhookVerifier(fixtures.secret);
+    for (const vector of fixtures.vectors) {
+      const event = verifier.constructEvent<Record<string, unknown>>(vector.header, vector.raw_body, fixtures.now);
+      expect(event.eventId).toBe(vector.event_id);
+      expect(event.eventType).toBe(vector.event_type);
+      expect(vector.version).toBe(1);
+      expect(event.version).toBe(vector.version);
+      expect(event.occurredAt).toBe(fixtures.now);
+      for (const expected of vector.expect) {
+        let value: unknown = event.data;
+        for (const path of expected.path) {
+          const key = path.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+          expect(value).toHaveProperty(key);
+          value = (value as Record<string, unknown>)[key];
+        }
+        expect(value, vector.name).toBe(expected.value);
+      }
+      expect(verifier.verify(vector.header, vector.raw_body + " ", fixtures.now)).toBe(false);
+    }
+  });
+
   it("pins the complete operation count", () => {
-    expect(Object.values(contract.resources).flat()).toHaveLength(21);
+    expect(Object.values(contract.resources).flat()).toHaveLength(25);
   });
 
   it("keeps top-level problem code authoritative", () => {
