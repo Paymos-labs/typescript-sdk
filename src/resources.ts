@@ -12,11 +12,15 @@ import type {
   InvoiceListItem,
   ListInvoicesParams,
   ListPaymentChannelsParams,
+  ListRefundsParams,
   ListWithdrawalsParams,
   PaymentChannel,
   PaymentChannelDeposit,
   PaymentChannelDepositFeedPage,
   ReadPaymentChannelDepositsParams,
+  Refund,
+  RefundListPage,
+  RefundMode,
   SimulateDepositParams,
   Withdrawal,
   WithdrawalListItem,
@@ -104,6 +108,26 @@ export class WithdrawalsResource {
       "POST",
       `/v1/sandbox/withdrawals/${encodePathSegment(withdrawalId)}/simulate-completion`,
     );
+  }
+}
+
+export class RefundsResource {
+  constructor(private readonly http: HttpClient) {}
+
+  create(invoiceId: string, mode: RefundMode, externalOrderId: string): Promise<Refund> {
+    return this.http.request("POST", "/v1/refunds", { invoiceId, mode, externalOrderId });
+  }
+
+  simulate(refundId: string, status: string): Promise<Refund> {
+    return this.http.request("POST", `/v1/sandbox/refunds/${encodePathSegment(refundId)}/simulate`, { status });
+  }
+
+  get(refundId: string): Promise<Refund> {
+    return this.http.request("GET", `/v1/refunds/${encodePathSegment(refundId)}`);
+  }
+
+  list(params: ListRefundsParams = {}): Promise<RefundListPage> {
+    return this.http.request("GET", "/v1/refunds", undefined, buildQuery(toWire(params) as Record<string, unknown>));
   }
 }
 

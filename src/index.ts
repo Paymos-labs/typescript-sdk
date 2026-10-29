@@ -5,6 +5,7 @@ import {
   InvoicesResource,
   PaymentChannelDepositsResource,
   PaymentChannelsResource,
+  RefundsResource,
   SystemResource,
   WithdrawalsResource,
 } from "./resources.js";
@@ -12,6 +13,7 @@ import {
 export class Paymos {
   readonly invoices: InvoicesResource;
   readonly withdrawals: WithdrawalsResource;
+  readonly refunds: RefundsResource;
   readonly paymentChannels: PaymentChannelsResource;
   readonly paymentChannelDeposits: PaymentChannelDepositsResource;
   readonly balances: BalancesResource;
@@ -21,6 +23,7 @@ export class Paymos {
     const http = new HttpClient(options);
     this.invoices = new InvoicesResource(http);
     this.withdrawals = new WithdrawalsResource(http);
+    this.refunds = new RefundsResource(http);
     this.paymentChannels = new PaymentChannelsResource(http);
     this.paymentChannelDeposits = new PaymentChannelDepositsResource(http);
     this.balances = new BalancesResource(http);

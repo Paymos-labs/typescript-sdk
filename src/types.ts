@@ -219,6 +219,32 @@ export interface ListWithdrawalsParams {
   createdTo?: number;
 }
 
+export type RefundMode = "full" | "overpayment";
+
+export interface Refund extends Readonly<Withdrawal> {
+  readonly invoiceId: string;
+  readonly mode: RefundMode;
+  readonly firstSender: string;
+  readonly type?: string;
+  readonly projectId?: string;
+}
+
+export interface RefundListPage {
+  readonly items: readonly Refund[];
+  readonly nextCursor: string | null;
+}
+
+export interface ListRefundsParams {
+  limit?: number;
+  cursor?: string;
+  invoiceId?: string;
+  status?: WithdrawalStatus[];
+  /** Inclusive lower bound, RFC 3339. */
+  createdFrom?: string;
+  /** Exclusive upper bound, RFC 3339. */
+  createdTo?: string;
+}
+
 export interface PaymentChannelToken {
   symbol: string;
   /** Absent = cannot quote a minimum right now. NOT "no minimum". */
