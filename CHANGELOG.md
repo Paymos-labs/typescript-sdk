@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-11-01
+
+- refactor(invoices): remove the multiple-payment toggle
+
+- **403 is no longer reported as an authentication failure.** `PermissionError` (a subclass of `AuthenticationError`, so existing catch-blocks keep working) now carries every 403. A 403 means the credential was accepted and something else refused — a wrong key type, a blocked IP, or plain account state such as `whitelist_required`. Reporting an unwhitelisted payout address as an authentication error sent integrators to rotate perfectly good keys.
+- **Base URL must use HTTPS.** Plain HTTP is accepted only against a loopback host, which is what a local integration test points at. The API secret signs every request, so a plaintext base URL put that credential on the wire.
+
 ## [2.5.0] - 2026-10-29
 
 - fix(sdk): preserve current refund contracts in TON conformance
