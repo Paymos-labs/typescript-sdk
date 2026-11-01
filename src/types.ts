@@ -87,7 +87,6 @@ export interface CreateInvoiceParams {
   currency: string;
   externalOrderId: string;
   network?: NetworkCode | null;
-  allowMultiplePayments?: boolean;
   customerFeePercent?: number | null;
   clientId?: string | null;
 }
