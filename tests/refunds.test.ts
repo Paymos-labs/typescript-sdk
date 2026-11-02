@@ -1,16 +1,21 @@
 import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
+  ConfigurationError,
   ConflictError,
   NotFoundError,
   Paymos,
   PaymosError,
+  RateLimitError,
+  UnavailableError,
   ValidationError,
   type Refund,
   type RefundListPage,
   type RefundMode,
 } from "../src/index.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 interface RequestVector {
   method: string;
@@ -38,7 +43,16 @@ const { vectors } = JSON.parse(
 };
 const refunds = vectors.refunds;
 
+it.each(["completed", "failed", "cancelled"] as const)("simulates a scoped refund as %s", async (status) => {
+  const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(json({ ...REFUND, status }));
+  const result = await paymos(fetchMock).refunds.simulate("wdr /?", status);
+  expect(result.status).toBe(status);
+  expectRequest(fetchMock.mock.calls[0]!, "POST", "/v1/sandbox/refunds/wdr%20%2F%3F/simulate", JSON.stringify({ status }));
+});
+
 const REFUND = {
+  type: "refund",
+  project_id: "prj_test",
   withdrawal_id: "wdr_1",
   invoice_id: "inv_74BPZFhr9qy9Uz2fbRkdJX",
   mode: "full",
@@ -62,6 +76,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 function paymos(fetchMock: typeof globalThis.fetch): Paymos {
+  vi.stubGlobal("fetch", fetchMock);
   return new Paymos({
     apiKey: "pk_test_key",
     apiSecret: "sk_test_secret",
@@ -90,76 +105,34 @@ function expectRequest(
 }
 
 describe("refunds", () => {
-  it.each(["completed", "failed", "cancelled"])("simulates %s with a signed refund route and preserves metadata", async (status) => {
-    const address = "UQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPuwA";
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(json({
-      ...REFUND, status, is_final: true, network: "TON", destination_address: address,
-      first_sender: address, type: "refund", project_id: "prj_1",
-    }));
-    const result = await paymos(fetchMock).refunds.simulate("wdr/1 ?", status);
-    expect(result.status).toBe(status);
-    expect(result.destinationAddress).toBe(address);
-    expect(result.firstSender).toBe(address);
-    expect(result.type).toBe("refund");
-    expect(result.projectId).toBe("prj_1");
-    expectRequest(fetchMock.mock.calls[0]!, "POST", "/v1/sandbox/refunds/wdr%2F1%20%3F/simulate", JSON.stringify({ status }));
-  });
-
-  it("accepts older refund responses without additive metadata", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(json(REFUND));
-    const result = await paymos(fetchMock).refunds.get("wdr_1");
-    expect(result.type).toBeUndefined();
-    expect(result.projectId).toBeUndefined();
-  });
   it.each([
     { vector: refunds.create, amount: "120" },
     { vector: refunds.overpayment, amount: "20" },
-  ])("creates $vector.body.mode with only invoice, mode and key signed by HMAC", async ({ vector, amount }) => {
+  ])("OFF rejects $vector.body.mode before sending the original invoice and key", async ({ vector, amount }) => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(json({
       ...REFUND,
       ...vector.body,
       amount,
     }, refunds.create.new_status));
     const client = paymos(fetchMock);
-
-    const refund = await client.refunds.create(
-      vector.body.invoice_id,
-      vector.body.mode,
-      vector.body.external_order_id,
-    );
-
-    expectRequest(fetchMock.mock.calls[0]!, vector.method, vector.path, JSON.stringify(vector.body));
-    const sent = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
-    for (const field of refunds.create.rejected_fields) expect(sent).not.toHaveProperty(field);
-    expect(refund).toMatchObject({
-      withdrawalId: "wdr_1",
-      invoiceId: REFUND.invoice_id,
-      externalOrderId: vector.body.external_order_id,
-      mode: vector.body.mode,
-      amount,
-      firstSender: "TFirstSender",
-      createdAt: 1_700_000_000,
-    });
+    await expect(client.refunds.create(vector.body.invoice_id, vector.body.mode, vector.body.external_order_id))
+      .rejects.toBeInstanceOf(ConfigurationError);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns the same withdrawal for a 201 create and its 200 replay", async () => {
+  it("OFF rejects create and the explicit same-key replay before sending", async () => {
     const fetchMock = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(json(REFUND, refunds.create.new_status))
       .mockResolvedValueOnce(json(REFUND, refunds.create.replay_status));
     const client = paymos(fetchMock);
-
-    const created = await client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id);
-    const replayed = await client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id);
-
-    expect(replayed).toEqual(created);
-    expect(replayed.withdrawalId).toBe("wdr_1");
-    for (const call of fetchMock.mock.calls) {
-      expectRequest(call, "POST", refunds.create.path, JSON.stringify(refunds.create.body));
+    for (let i = 0; i < 2; i++) {
+      await expect(client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id))
+        .rejects.toBeInstanceOf(ConfigurationError);
     }
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("keeps a changed-mode 409 structured and does not send a new key", async () => {
+  it("OFF rejects both modes for an existing key before sending", async () => {
     const problem = {
       type: "about:blank",
       title: "Conflict",
@@ -172,41 +145,64 @@ describe("refunds", () => {
       .mockResolvedValueOnce(json(REFUND, 201))
       .mockResolvedValueOnce(json(problem, problem.status));
     const client = paymos(fetchMock);
-    await client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id);
-
-    const error = await client.refunds.create(REFUND.invoice_id, "overpayment", REFUND.external_order_id)
-      .catch((caught: unknown) => caught);
-
-    expect(error).toBeInstanceOf(ConflictError);
-    expect(error).toMatchObject({ status: 409, code: "idempotency_conflict", field: "external_order_id", problem });
-    expectRequest(fetchMock.mock.calls[1]!, "POST", refunds.create.path, JSON.stringify({
-      invoice_id: REFUND.invoice_id,
-      mode: "overpayment",
-      external_order_id: REFUND.external_order_id,
-    }));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const mode of ["full", "overpayment"] as const) {
+      await expect(client.refunds.create(REFUND.invoice_id, mode, REFUND.external_order_id))
+        .rejects.toBeInstanceOf(ConfigurationError);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("leaves an unknown outcome to an explicit replay with the same mode and key", async () => {
+  it("OFF rejects retry-configured create and explicit replay before sending", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ type: "about:blank", title: "Rate limited", status: 429,
+        detail: "Try later", code: "rate_limited" }, 429))
+      .mockResolvedValueOnce(json(REFUND, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new Paymos({ apiKey: "pk_test_key", apiSecret: "sk_test_secret", fetch: fetchMock,
+      clock: () => 1_700_000_000_000, retry: { maxRetries: 2, baseDelayMs: 0 } });
+    for (let i = 0; i < 2; i++) {
+      await expect(client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id))
+        .rejects.toBeInstanceOf(ConfigurationError);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("OFF rejects refund before any unavailable response or retry", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(json({ error: "unavailable" }, 503))
+      .mockResolvedValueOnce(json(REFUND, 201));
+    const client = paymos(fetchMock);
+    await expect(client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id))
+      .rejects.toBeInstanceOf(ConfigurationError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps ordinary invoice POST and GET retries", async () => {
+    const post = vi.fn<typeof fetch>().mockResolvedValueOnce(json({}, 429)).mockResolvedValueOnce(json({}, 201));
+    const client = new Paymos({ apiKey: "pk_test_key", apiSecret: "sk_test_secret", fetch: post,
+      retry: { maxRetries: 1, baseDelayMs: 0 } });
+    await client.invoices.create({ projectId: "prj_1", amount: "1", currency: "USD", externalOrderId: "order_1" });
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[0]?.[1]?.body).toBe(post.mock.calls[1]?.[1]?.body);
+    const get = vi.fn<typeof fetch>().mockResolvedValueOnce(json({}, 503)).mockResolvedValueOnce(json({}, 200));
+    const other = new Paymos({ apiKey: "pk_test_key", apiSecret: "sk_test_secret", fetch: get,
+      retry: { maxRetries: 1, baseDelayMs: 0 } });
+    await other.invoices.get("inv_1");
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it("OFF rejects create and replay before an outcome can become unknown", async () => {
     const fetchMock = vi.fn<typeof fetch>()
       .mockRejectedValueOnce(new TypeError("Connection lost after send"))
       .mockResolvedValueOnce(json(REFUND, refunds.create.replay_status));
     const client = paymos(fetchMock);
-
-    await expect(client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id))
-      .rejects.toBeInstanceOf(PaymosError);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    const replayed = await client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id);
-
-    expect(replayed.withdrawalId).toBe("wdr_1");
-    for (const call of fetchMock.mock.calls) {
-      expectRequest(call, "POST", refunds.create.path, JSON.stringify(refunds.create.body));
+    for (let i = 0; i < 2; i++) {
+      await expect(client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id))
+        .rejects.toBeInstanceOf(ConfigurationError);
     }
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("reads server amounts for sandbox paid 120 / expected 100, overpayment 20, then full 100", async () => {
+  it("OFF keeps sandbox invoice simulation but rejects refund creation", async () => {
     const overpayment = {
       ...REFUND,
       mode: "overpayment",
@@ -228,21 +224,12 @@ describe("refunds", () => {
     const client = paymos(fetchMock);
 
     const invoice = await client.invoices.simulatePayment(REFUND.invoice_id, "overpaid");
-    const over = await client.refunds.create(invoice.invoiceId, "overpayment", "refund-order-2");
-    await client.withdrawals.simulateCompletion(over.withdrawalId);
-    const settled = await client.refunds.get(over.withdrawalId);
-    const full = await client.refunds.create(invoice.invoiceId, "full", "refund-order-1");
-
     expect(invoice.payment).toMatchObject({ expected: "100", paid: "120" });
-    expect(over).toMatchObject({ amount: "20", mode: "overpayment", isTest: true, status: "created" });
-    expect(settled).toMatchObject({ status: "completed", amount: "20", completedAt: 1_700_000_100 });
-    expect(full).toMatchObject({ withdrawalId: "wdr_2", mode: "full", amount: "100", isTest: true });
     expectRequest(fetchMock.mock.calls[0]!, "POST", `/v1/sandbox/invoices/${REFUND.invoice_id}/simulate-payment`,
       JSON.stringify({ stage: "overpaid" }));
-    expectRequest(fetchMock.mock.calls[1]!, "POST", refunds.overpayment.path, JSON.stringify(refunds.overpayment.body));
-    expectRequest(fetchMock.mock.calls[2]!, "POST", "/v1/sandbox/withdrawals/wdr_1/simulate-completion");
-    expectRequest(fetchMock.mock.calls[3]!, "GET", "/v1/refunds/wdr_1");
-    expectRequest(fetchMock.mock.calls[4]!, "POST", refunds.create.path, JSON.stringify(refunds.create.body));
+    await expect(client.refunds.create(invoice.invoiceId, "overpayment", "refund-order-2"))
+      .rejects.toBeInstanceOf(ConfigurationError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("signs invoice, repeated status, RFC 3339 period and opaque cursor filters", async () => {
@@ -375,21 +362,17 @@ describe("refunds", () => {
     expectRequest(fetchMock.mock.calls[0]!, "GET", refunds.list.path, "", "?cursor=invalid");
   });
 
-  it("keeps the top-level RFC 9457 code and every validation error", async () => {
+  it("OFF preserves RFC 9457 validation errors for history reads", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(json(vectors.problem_details.multi, 400));
     const client = paymos(fetchMock);
-
-    const error = await client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id)
-      .catch((caught: unknown) => caught);
-
+    await expect(client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id))
+      .rejects.toBeInstanceOf(ConfigurationError);
+    const error = await client.refunds.get("wdr_fake").catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ValidationError);
-    expect(error).toMatchObject({
-      status: 400,
-      code: "validation_failed",
-      field: null,
-      problem: vectors.problem_details.multi,
-      errors: vectors.problem_details.multi.errors,
-    });
+    expect(error).toMatchObject({ status: 400, code: "validation_failed", field: null,
+      problem: vectors.problem_details.multi, errors: vectors.problem_details.multi.errors });
+    expectRequest(fetchMock.mock.calls[0]!, "GET", "/v1/refunds/wdr_fake");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("exposes readonly refund responses and no client-controlled amount arguments", () => {
@@ -418,4 +401,208 @@ describe("refunds", () => {
     }
     expectTypeOf(client.refunds.create).returns.toEqualTypeOf<Promise<Refund>>();
   });
+});
+
+// The dispatcher is an in-memory receiver. Native Node fetch still performs all redirect logic;
+// the test never opens a socket and never calls an actual API host.
+import { HttpClient as RedirectProbeHttpClient } from "../src/http.js";
+
+type RedirectProbeHandler = {
+  onConnect(abort: () => void, context: unknown): void;
+  onHeaders(status: number, headers: Buffer[], resume: () => void, message: string): boolean;
+  onData(chunk: Buffer): boolean;
+  onComplete(trailers: Buffer[]): void;
+  onError(error: Error): void;
+};
+
+function redirectProbe(status: number) {
+  const calls: { method: string; path: string; body: string }[] = [];
+  const dispatcher = {
+    dispatch(options: { method: string; path: string; body?: unknown }, handler: RedirectProbeHandler): boolean {
+      let aborted = false;
+      handler.onConnect(() => { aborted = true; }, null);
+      void (async () => {
+        let body = "";
+        const input = options.body;
+        if (typeof input === "string") body = input;
+        else if (input instanceof Uint8Array) body = Buffer.from(input).toString("utf8");
+        else if (input && Symbol.asyncIterator in Object(input)) {
+          const chunks: Buffer[] = [];
+          for await (const chunk of input as AsyncIterable<Uint8Array>) chunks.push(Buffer.from(chunk));
+          body = Buffer.concat(chunks).toString("utf8");
+        }
+        calls.push({ method: options.method, path: options.path, body });
+        if (aborted) return;
+        if (calls.length === 1) {
+          handler.onHeaders(status, [Buffer.from("location"), Buffer.from("/redirected")], () => {}, "Redirect");
+        } else {
+          const response = Buffer.from('{"withdrawal_id":"wdr_fake"}');
+          handler.onHeaders(200, [Buffer.from("content-type"), Buffer.from("application/json")], () => {}, "OK");
+          handler.onData(response);
+        }
+        if (!aborted) handler.onComplete([]);
+      })().catch((error: unknown) => handler.onError(error instanceof Error ? error : new Error(String(error))));
+      return true;
+    },
+  };
+  const nativeFetch = globalThis.fetch;
+  const wrappedFetch: typeof globalThis.fetch = (input, init) =>
+    nativeFetch(input, { ...init, dispatcher } as RequestInit);
+  return { calls, fetch: wrappedFetch };
+}
+
+describe("standard fetch refund redirects", () => {
+  it.each([301, 302, 303, 307, 308])("OFF rejects refund before a %s redirect can be sent", async (status) => {
+    const probe = redirectProbe(status);
+    vi.stubGlobal("fetch", probe.fetch);
+    const client = new RedirectProbeHttpClient({
+      apiKey: "pk_test", apiSecret: "sk_test", baseUrl: "https://refund.invalid",
+      fetch: probe.fetch, retry: false, clock: () => 1_700_000_000_000,
+    });
+    await expect(client.request("POST", "/v1/refunds", {
+      invoiceId: "inv_fake", mode: "full", externalOrderId: "original-key",
+    })).rejects.toBeInstanceOf(ConfigurationError);
+    expect(probe.calls).toEqual([]);
+  });
+
+  it("preserves ordinary invoice redirects", async () => {
+    const probe = redirectProbe(307);
+    vi.stubGlobal("fetch", probe.fetch);
+    const client = new RedirectProbeHttpClient({
+      apiKey: "pk_test", apiSecret: "sk_test", baseUrl: "https://refund.invalid",
+      fetch: probe.fetch, retry: false, clock: () => 1_700_000_000_000,
+    });
+    await expect(client.request("POST", "/v1/invoices", { externalOrderId: "invoice-key" }))
+      .resolves.toMatchObject({ withdrawalId: "wdr_fake" });
+    expect(probe.calls.map(({ method, path }) => ({ method, path }))).toEqual([
+      { method: "POST", path: "/v1/invoices" },
+      { method: "POST", path: "/redirected" },
+    ]);
+  });
+});
+
+it.each([307, 308])("OFF rejects refund before a %s redirect or replay", async (status) => {
+  const probe = redirectProbe(status);
+  vi.stubGlobal("fetch", probe.fetch);
+  const client = new RedirectProbeHttpClient({
+    apiKey: "pk_test", apiSecret: "sk_test", baseUrl: "https://refund.invalid",
+    fetch: probe.fetch, retry: false, clock: () => 1_700_000_000_000,
+  });
+  await expect(client.request("POST", "/v1/refunds", {
+    invoiceId: "inv_fake", mode: "full", externalOrderId: "original-key",
+  })).rejects.toBeInstanceOf(ConfigurationError);
+  expect(probe.calls).toEqual([]);
+});
+
+it("OFF rejects before a redirected custom Fetch response", async () => {
+  const response = new Response('{"withdrawal_id":"wdr_fake"}', { status: 200 });
+  Object.defineProperty(response, "redirected", { value: true });
+  const customFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(response);
+  vi.stubGlobal("fetch", customFetch);
+  const client = new RedirectProbeHttpClient({
+    apiKey: "pk_test", apiSecret: "sk_test", fetch: customFetch, retry: false,
+  });
+  await expect(client.request("POST", "/v1/refunds", {
+    invoiceId: "inv_fake", mode: "full", externalOrderId: "original-key",
+  })).rejects.toBeInstanceOf(ConfigurationError);
+  expect(customFetch).not.toHaveBeenCalled();
+});
+
+it("continues accepting redirected responses for ordinary invoice operations", async () => {
+  const response = new Response('{"invoice_id":"inv_fake"}', { status: 200 });
+  Object.defineProperty(response, "redirected", { value: true });
+  const customFetch = vi.fn<typeof fetch>().mockResolvedValueOnce(response);
+  vi.stubGlobal("fetch", customFetch);
+  const client = new RedirectProbeHttpClient({
+    apiKey: "pk_test", apiSecret: "sk_test", fetch: customFetch, retry: false,
+  });
+  await expect(client.request("POST", "/v1/invoices", { externalOrderId: "invoice-key" }))
+    .resolves.toMatchObject({ invoiceId: "inv_fake" });
+  expect(customFetch).toHaveBeenCalledTimes(1);
+});
+
+it("rejects an unverified custom fetch before refund create but preserves ordinary and history reads", async () => {
+  const customFetch = vi.fn<typeof fetch>().mockImplementation(async () => json(REFUND));
+  const client = new Paymos({ apiKey: "pk_test", apiSecret: "sk_test", fetch: customFetch, retry: false });
+
+  await expect(client.refunds.create(REFUND.invoice_id, "full", REFUND.external_order_id))
+    .rejects.toBeInstanceOf(ConfigurationError);
+  expect(customFetch).not.toHaveBeenCalled();
+
+  await client.invoices.get("inv_1");
+  await client.refunds.get("wdr_1");
+  expect(customFetch).toHaveBeenCalledTimes(2);
+});
+
+type Ir52Internals = { http: { options: { fetch: typeof globalThis.fetch } } };
+
+function ir52ReplaceFetch(client: Paymos, fetchImplementation: typeof globalThis.fetch): void {
+  (client.refunds as unknown as Ir52Internals).http.options.fetch = fetchImplementation;
+}
+
+it("IR-52 rejects a constructor fetch getter that first returns an unverified transport", async () => {
+  const custom = vi.fn<typeof fetch>().mockResolvedValue(json(REFUND));
+  let reads = 0;
+  const client = new Paymos({
+    apiKey: "pk_test", apiSecret: "sk_test",
+    get fetch() { reads += 1; return reads === 1 ? custom : globalThis.fetch; },
+  });
+
+  await expect(client.refunds.create("inv_test", "full", "original-key")).rejects.toBeInstanceOf(ConfigurationError);
+  expect(reads).toBe(1);
+  expect(custom).not.toHaveBeenCalled();
+});
+
+it("OFF rejects even when the first getter yields the ambient Fetch", async () => {
+  const standard = vi.fn<typeof fetch>().mockResolvedValue(json(REFUND));
+  const custom = vi.fn<typeof fetch>().mockResolvedValue(json(REFUND));
+  vi.stubGlobal("fetch", standard);
+  let reads = 0;
+  const client = new Paymos({
+    apiKey: "pk_test", apiSecret: "sk_test",
+    get fetch() { reads += 1; return reads === 1 ? standard : custom; },
+  });
+  await expect(client.refunds.create("inv_test", "full", "original-key")).rejects.toBeInstanceOf(ConfigurationError);
+  expect(reads).toBe(1);
+  expect(standard).not.toHaveBeenCalled();
+  expect(custom).not.toHaveBeenCalled();
+});
+
+it("OFF rejects even when the getter yields the default Fetch", async () => {
+  const standard = vi.fn<typeof fetch>().mockResolvedValue(json(REFUND));
+  const custom = vi.fn<typeof fetch>().mockResolvedValue(json(REFUND));
+  vi.stubGlobal("fetch", standard);
+  let reads = 0;
+  const options = {
+    apiKey: "pk_test", apiSecret: "sk_test",
+    get fetch() { reads += 1; return reads === 1 ? undefined : custom; },
+  } as unknown as ConstructorParameters<typeof Paymos>[0];
+  await expect(new Paymos(options).refunds.create("inv_test", "full", "original-key"))
+    .rejects.toBeInstanceOf(ConfigurationError);
+  expect(reads).toBe(1);
+  expect(standard).not.toHaveBeenCalled();
+  expect(custom).not.toHaveBeenCalled();
+});
+
+it("IR-52 rejects an unverified fetch substituted after client construction", async () => {
+  const custom = vi.fn<typeof fetch>().mockResolvedValue(json(REFUND));
+  const client = new Paymos({ apiKey: "pk_test", apiSecret: "sk_test" });
+  ir52ReplaceFetch(client, custom);
+
+  await expect(client.refunds.create("inv_test", "full", "original-key")).rejects.toBeInstanceOf(ConfigurationError);
+  expect(custom).not.toHaveBeenCalled();
+});
+
+it("OFF rejects before a clock callback can alter Fetch", async () => {
+  const standard = vi.fn<typeof fetch>().mockResolvedValue(json(REFUND));
+  const custom = vi.fn<typeof fetch>().mockResolvedValue(json(REFUND));
+  vi.stubGlobal("fetch", standard);
+  let client!: Paymos;
+  client = new Paymos({
+    apiKey: "pk_test", apiSecret: "sk_test",
+    clock: () => { ir52ReplaceFetch(client, custom); return 1_700_000_000_000; },
+  });
+  await expect(client.refunds.create("inv_test", "full", "original-key")).rejects.toBeInstanceOf(ConfigurationError);
+  expect(standard).not.toHaveBeenCalled();
+  expect(custom).not.toHaveBeenCalled();
 });

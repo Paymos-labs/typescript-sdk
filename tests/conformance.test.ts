@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { apiErrorFromResponse, authorizationHeader, buildQuery, WebhookVerifier } from "../src/index.js";
+import { describe, expect, it, vi } from "vitest";
+import { apiErrorFromResponse, authorizationHeader, buildQuery, Paymos, WebhookVerifier } from "../src/index.js";
 
 const contract = JSON.parse(
   readFileSync(new URL("../conformance/contract.json", import.meta.url), "utf8"),
@@ -59,15 +59,17 @@ describe("shared SDK conformance", () => {
     expect(verifier.verify(vector.header, vector.raw_body, vector.now)).toBe(true);
   });
 
-  it("verifies raw and friendly schema 1 TON events and preserves all address and amount fields", () => {
+  it("verifies literal v1/v2 TON events and preserves all address and amount fields", () => {
     const fixtures = contract.vectors.ton_webhooks;
-    expect(fixtures.vectors).toHaveLength(8);
+    expect(fixtures.vectors).toHaveLength(16);
+    expect(new Set(fixtures.vectors.map((vector) => vector.name)).size).toBe(16);
+    expect([...new Set(fixtures.vectors.map((vector) => vector.version))].sort()).toEqual([1, 2]);
     const verifier = new WebhookVerifier(fixtures.secret);
     for (const vector of fixtures.vectors) {
+      expect(verifier.verify(vector.header, vector.raw_body, fixtures.now), vector.name).toBe(true);
       const event = verifier.constructEvent<Record<string, unknown>>(vector.header, vector.raw_body, fixtures.now);
       expect(event.eventId).toBe(vector.event_id);
       expect(event.eventType).toBe(vector.event_type);
-      expect(vector.version).toBe(1);
       expect(event.version).toBe(vector.version);
       expect(event.occurredAt).toBe(fixtures.now);
       for (const expected of vector.expect) {
@@ -81,6 +83,22 @@ describe("shared SDK conformance", () => {
       }
       expect(verifier.verify(vector.header, vector.raw_body + " ", fixtures.now)).toBe(false);
     }
+  });
+
+  it("validates simulator statuses without narrowing the public string signature", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response("{}", {
+      status: 200, headers: { "content-type": "application/json" },
+    }));
+    const client = new Paymos({ apiKey: "pk_test", apiSecret: "sk_test", fetch: fetchMock, retry: false });
+    const status: string = "completed";
+    await client.refunds.simulate("wdr /?", status);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.paymos.io/v1/sandbox/refunds/wdr%20%2F%3F/simulate");
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe('{"status":"completed"}');
+    for (const invalid of ["", "created", "COMPLETED"]) {
+      expect(() => client.refunds.simulate("wdr_1", invalid)).toThrow(TypeError);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("pins the complete operation count", () => {

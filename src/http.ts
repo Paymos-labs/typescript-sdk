@@ -37,6 +37,10 @@ export class HttpClient {
   }
 
   async request<T>(method: string, path: string, payload?: unknown, query = ""): Promise<T> {
+    // Ambient Fetch and its dispatcher cannot currently be proven to be SDK-owned.
+    if (method.toUpperCase() === "POST" && path === "/v1/refunds") {
+      throw new ConfigurationError("Refund creation is unavailable because the transport cannot be verified.");
+    }
     const body = payload === undefined ? "" : JSON.stringify(toWire(payload));
     const url = `${this.options.baseUrl}${path}${query}`;
     let attempt = 0;
@@ -152,7 +156,9 @@ function normalizeOptions(options: ClientOptions): NormalizedOptions {
   if (!Number.isSafeInteger(baseDelayMs) || baseDelayMs < 0) {
     throw new ConfigurationError("retry.baseDelayMs must be a non-negative integer.");
   }
-  const fetchImplementation = options.fetch ?? globalThis.fetch;
+  const providedFetch = options.fetch;
+  const standardFetch = globalThis.fetch;
+  const fetchImplementation = providedFetch ?? standardFetch;
   if (typeof fetchImplementation !== "function") throw new ConfigurationError("A Fetch implementation is required.");
   return {
     apiKey,

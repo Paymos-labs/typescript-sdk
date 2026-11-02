@@ -118,12 +118,13 @@ export class RefundsResource {
     return this.http.request("POST", "/v1/refunds", { invoiceId, mode, externalOrderId });
   }
 
-  simulate(refundId: string, status: string): Promise<Refund> {
-    return this.http.request("POST", `/v1/sandbox/refunds/${encodePathSegment(refundId)}/simulate`, { status });
-  }
-
   get(refundId: string): Promise<Refund> {
     return this.http.request("GET", `/v1/refunds/${encodePathSegment(refundId)}`);
+  }
+
+  simulate(refundId: string, status: string): Promise<Refund> {
+    if (!["completed", "failed", "cancelled"].includes(status)) throw new TypeError("Invalid terminal refund status.");
+    return this.http.request("POST", `/v1/sandbox/refunds/${encodePathSegment(refundId)}/simulate`, { status });
   }
 
   list(params: ListRefundsParams = {}): Promise<RefundListPage> {
