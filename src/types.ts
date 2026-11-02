@@ -221,11 +221,11 @@ export interface ListWithdrawalsParams {
 export type RefundMode = "full" | "overpayment";
 
 export interface Refund extends Readonly<Withdrawal> {
+  readonly type: "refund";
+  readonly projectId: string;
   readonly invoiceId: string;
   readonly mode: RefundMode;
   readonly firstSender: string;
-  readonly type?: string;
-  readonly projectId?: string;
 }
 
 export interface RefundListPage {
