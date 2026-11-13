@@ -87,8 +87,32 @@ for (const rail of channel.networks) {
 }
 
 const feed = await paymos.paymentChannelDeposits.read({ cursor: savedCursor, limit: 100 });
-for (const deposit of feed.items) credit(deposit);
+for (const deposit of feed.items) await creditDeposit(deposit); // one credit per deposit.id, see below
 await saveCursor(feed.nextCursor);
+```
+
+The feed and the deposit webhook report the same deposits, so both must go through one
+`creditDeposit` keyed by the deposit's own `id` (`pcd_...`). A sketch with a SQL store
+(`credited_deposits.deposit_id` is the primary key; PostgreSQL syntax):
+
+```ts
+async function creditDeposit(deposit: PaymentChannelDeposit): Promise<void> {
+  if (!deposit.isFinal || deposit.projectId !== MY_PROJECT_ID || deposit.isTest !== MY_IS_TEST) return;
+  await db.transaction(async (tx) => {
+    // The insert and the balance update commit together or not at all. A second
+    // delivery, a second endpoint's copy, or a re-read feed page inserts nothing.
+    const inserted = await tx.query(
+      "INSERT INTO credited_deposits (deposit_id, payer, amount) VALUES ($1, $2, $3::numeric) ON CONFLICT (deposit_id) DO NOTHING",
+      [deposit.id, deposit.paymentChannelExternalId, deposit.net],
+    );
+    if (inserted.rowCount === 1) {
+      await tx.query("UPDATE balances SET amount = amount + $1::numeric WHERE payer = $2", [
+        deposit.net,
+        deposit.paymentChannelExternalId,
+      ]);
+    }
+  });
+}
 ```
 
 Four things that bite an integrator who guesses:
@@ -133,10 +157,19 @@ const event = verifier.constructEvent(
 
 switch (event.eventType) {
   case "invoice.paid":
-    // Fulfil idempotently by event.eventId.
+  case "invoice.paid_over":
+    // Fulfil the order you stored for this invoice (event.data.order.externalId),
+    // as a guarded state change: only an unpaid order moves to paid.
     break;
 }
 ```
+
+`eventId` identifies one delivery, not one payment. Paymos creates a separate event, with
+its own `eventId`, for every webhook endpoint subscribed to the event, and every later
+event about the same invoice or deposit has its own `eventId` too. Store
+`eventId` to skip a redelivered request, but key money and fulfilment on the business
+identity: the invoice/order for invoice events, the deposit `id` for deposit events.
+Write that key in the same database transaction as the order or balance change.
 
 The verifier accepts multiple `v1` signatures during secret rotation, uses constant-time comparison, and rejects timestamps outside the default five-minute tolerance.
 
@@ -151,7 +184,7 @@ import type { PaymentChannelDeposit } from "@paymos/sdk";
 const event = verifier.constructEvent<PaymentChannelDeposit>(signatureHeader, rawBody);
 
 if (event.eventType === "payment_channel.deposit.confirmed" && event.data.isFinal) {
-  credit(event.data.paymentChannelExternalId, event.data.net); // idempotent by event.eventId
+  await creditDeposit(event.data); // once per event.data.id, shared with the feed
 }
 ```
 

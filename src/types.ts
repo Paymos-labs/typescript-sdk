@@ -57,7 +57,13 @@ export type WithdrawalEventType =
   | "withdrawal.processing"
   | "withdrawal.completed"
   | "withdrawal.failed"
-  | "withdrawal.cancelled";
+  | "withdrawal.cancelled"
+  /**
+   * A completed payout whose completion transaction left the chain in a reorg. Not final:
+   * the payload is the payout as of the rewind (`status: "signed"`, `isFinal: false`, no
+   * `completedAt`); a later `withdrawal.completed` or `withdrawal.failed` follows.
+   */
+  | "withdrawal.completion_rewound";
 
 /**
  * The three payment-channel deposit events. Every one of them carries a full

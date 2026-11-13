@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { PaymentChannelDeposit } from "../src/index.js";
+import type { PaymentChannelDeposit, Withdrawal, WithdrawalEventType } from "../src/index.js";
 import { SignatureMismatchError, TimestampSkewError, WebhookVerifier } from "../src/index.js";
 
 describe("WebhookVerifier", () => {
@@ -110,5 +110,55 @@ describe("WebhookVerifier", () => {
     for (const key of ["contractAddress", "sourceAddress", "explorerUrl", "firstIncludedBlockTimestamp"]) {
       expect(deposit).not.toHaveProperty(key);
     }
+  });
+
+  /**
+   * The named union must list every withdrawal event the server catalog emits
+   * (src/Paymos.Domain/Withdrawals/WithdrawalEventTypes.cs). The Record below is a
+   * compile-time check run by `npm run check`: a missing union member makes the
+   * `withdrawal.completion_rewound` key an excess property, an extra one a missing key.
+   */
+  it("withdrawal event type includes completion_rewound", () => {
+    const serverCatalog: Record<WithdrawalEventType, true> = {
+      "withdrawal.created": true,
+      "withdrawal.processing": true,
+      "withdrawal.completed": true,
+      "withdrawal.failed": true,
+      "withdrawal.cancelled": true,
+      "withdrawal.completion_rewound": true,
+    };
+    expect(Object.keys(serverCatalog)).toHaveLength(6);
+
+    const rewoundBody = JSON.stringify({
+      event_id: "evt_3",
+      event_type: "withdrawal.completion_rewound",
+      version: 1,
+      occurred_at: timestamp,
+      data: {
+        withdrawal_id: "wd_1",
+        external_order_id: "payout_1",
+        status: "signed",
+        is_final: false,
+        is_test: false,
+        amount: "50.00",
+        currency: "USDT",
+        network: "TRC20",
+        destination_address: "TDestination",
+        created_at: 1_700_000_000,
+      },
+    });
+    const signature = createHmac("sha256", secret).update(`${timestamp}.${rewoundBody}`).digest("hex");
+
+    const event = new WebhookVerifier(secret).constructEvent<Withdrawal>(
+      `t=${timestamp},v1=${signature}`,
+      rewoundBody,
+      timestamp,
+    );
+
+    const eventType: WithdrawalEventType = "withdrawal.completion_rewound";
+    expect(event.eventType).toBe(eventType);
+    expect(event.data.status).toBe("signed");
+    expect(event.data.isFinal).toBe(false);
+    expect(event.data).not.toHaveProperty("completedAt");
   });
 });
