@@ -87,6 +87,14 @@ export type WebhookEventType =
   | PaymentChannelDepositEventType
   | (string & {});
 
+export interface InvoiceProduct {
+  title: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  quantity: number;
+  unitAmount: string;
+}
+
 export interface CreateInvoiceParams {
   projectId: string;
   amount: string;
@@ -95,6 +103,7 @@ export interface CreateInvoiceParams {
   network?: NetworkCode | null;
   customerFeePercent?: number | null;
   clientId?: string | null;
+  products?: InvoiceProduct[] | null;
 }
 
 export interface ConfirmPaymentParams {
@@ -108,6 +117,7 @@ export interface Order {
   amount: string;
   currency: string;
   network?: NetworkCode;
+  products?: InvoiceProduct[];
 }
 
 export interface Transfer {

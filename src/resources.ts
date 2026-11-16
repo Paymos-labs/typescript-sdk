@@ -10,6 +10,7 @@ import type {
   CursorPage,
   Invoice,
   InvoiceListItem,
+  InvoiceProduct,
   ListInvoicesParams,
   ListPaymentChannelsParams,
   ListRefundsParams,
@@ -30,7 +31,10 @@ export class InvoicesResource {
   constructor(private readonly http: HttpClient) {}
 
   create(params: CreateInvoiceParams): Promise<Invoice> {
-    return this.http.request("POST", "/v1/invoices", params);
+    const payload = Array.isArray(params.products)
+      ? { ...params, products: params.products.map(normalizeInvoiceProduct) }
+      : params;
+    return this.http.request("POST", "/v1/invoices", payload);
   }
 
   get(invoiceId: string): Promise<Invoice> {
@@ -239,4 +243,12 @@ function assertMaxPages(maxPages: number): void {
   if (!Number.isSafeInteger(maxPages) || maxPages < 1) {
     throw new TypeError("maxPages must be a positive integer.");
   }
+}
+
+function normalizeInvoiceProduct(product: InvoiceProduct): InvoiceProduct {
+  if (product === null || typeof product !== "object") return product;
+  const normalized: InvoiceProduct = { ...product };
+  if (normalized.description == null) delete normalized.description;
+  if (normalized.imageUrl == null) delete normalized.imageUrl;
+  return normalized;
 }

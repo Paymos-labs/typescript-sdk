@@ -15,7 +15,7 @@ Node.js 22.12 or newer is required. The package ships ESM, CommonJS, and TypeScr
 ## Quick start
 
 ```ts
-import { Paymos, externalOrderId } from "@paymos/sdk";
+import { Paymos, externalOrderId, type InvoiceProduct } from "@paymos/sdk";
 
 const paymos = new Paymos({
   apiKey: process.env.PAYMOS_API_KEY!,
@@ -27,6 +27,7 @@ const paymos = new Paymos({
 const orderId = externalOrderId("order");
 await persistOrderKey(orderId);
 
+// Compatible amount-only call (products omitted or null)
 const invoice = await paymos.invoices.create({
   projectId: "prj_xxxxxxxxxxxx",
   amount: "49.95",
@@ -38,6 +39,55 @@ console.log(invoice.paymentUrl);
 ```
 
 Use decimal strings for money. Never convert API amounts to JavaScript `number`.
+
+### Product line items (`products[]`)
+
+Pass an optional `products` array (1 to 50 `InvoiceProduct` items) to display purchase context on hosted checkout. Omit `products` or pass `null` for an `amount-only` invoice.
+
+Each item requires `title` (<= 200 Unicode scalar values), positive int32 `quantity`, and decimal string `unitAmount` (in the invoice currency); `description` (plain text, <= 2000 scalars) and `imageUrl` (HTTPS URL, <= 2048 scalars) are optional nullable fields. The SDK converts keys to `snake_case` (`unit_amount`, `image_url`) and omits `null`/`undefined` optional fields on the wire.
+
+```ts
+// 1-item invoice with optional description and imageUrl
+const singleProduct: InvoiceProduct = {
+  title: "Studio Pro",
+  description: "One-month access",
+  imageUrl: "https://shop.example/images/studio-pro.webp",
+  quantity: 2,
+  unitAmount: "24.50",
+};
+
+const singleInvoice = await paymos.invoices.create({
+  projectId: "prj_xxxxxxxxxxxx",
+  amount: "47.00",
+  currency: "USD",
+  externalOrderId: externalOrderId("order"),
+  products: [singleProduct],
+});
+
+// Multi-item cart including a minimal 3-field item (no description / imageUrl)
+const cartInvoice = await paymos.invoices.create({
+  projectId: "prj_xxxxxxxxxxxx",
+  amount: "59.00",
+  currency: "USD",
+  externalOrderId: externalOrderId("order"),
+  products: [
+    singleProduct,
+    {
+      title: "Priority Support",
+      quantity: 1,
+      unitAmount: "12.00",
+    },
+  ],
+});
+
+for (const item of cartInvoice.order.products ?? []) {
+  console.log(item.title, item.quantity, item.unitAmount, item.imageUrl ?? "(no image)");
+}
+```
+
+- **Authoritative `amount`:** `amount` is the exact order total (including discounts, tax, or shipping) and is never recomputed from `sum(quantity * unitAmount)`.
+- **First-success replay:** the first successful create freezes `order.products` on the invoice. Replaying the same `externalOrderId` with unchanged `(amount, currency, network)` returns HTTP 200 with the original `invoice` and original `order.products`, even if `products[]` differs on the retry. Changing `(amount, currency, network)` returns `409 Conflict` (`invoice_idempotency_conflict`). Legacy or `amount-only` invoices omit `order.products` (`undefined`).
+- **Image/product fallback & webhooks:** invoice creation stores `imageUrl` without fetching it server-side; if the buyer's browser fails to load an image or an item omits `description`/`imageUrl`, checkout hides only the missing media/description and keeps payment active. Signed invoice webhooks omit `products` (`order` keeps its pre-existing shape).
 
 ## Idempotency
 
