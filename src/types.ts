@@ -90,7 +90,6 @@ export type WebhookEventType =
 export interface InvoiceProduct {
   title: string;
   description?: string | null;
-  imageUrl?: string | null;
   quantity: number;
   unitAmount: string;
 }

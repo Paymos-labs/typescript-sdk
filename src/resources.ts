@@ -249,6 +249,5 @@ function normalizeInvoiceProduct(product: InvoiceProduct): InvoiceProduct {
   if (product === null || typeof product !== "object") return product;
   const normalized: InvoiceProduct = { ...product };
   if (normalized.description == null) delete normalized.description;
-  if (normalized.imageUrl == null) delete normalized.imageUrl;
   return normalized;
 }

@@ -108,7 +108,6 @@ describe("resource routes", () => {
     const singleProduct: InvoiceProduct = {
       title: "Studio Pro",
       description: "One-month access",
-      imageUrl: "https://shop.example/images/studio-pro.webp",
       quantity: 2,
       unitAmount: "24.50",
     };
@@ -140,7 +139,7 @@ describe("resource routes", () => {
     const multiBodyText = String(fetchMock.mock.calls[1]?.[1]?.body);
     expect(JSON.parse(multiBodyText)).toEqual(vectors.create_multi_product.body);
     expect(multiBodyText).not.toContain("unitAmount");
-    expect(multiBodyText).not.toContain("imageUrl");
+    expect(multiBodyText).not.toContain("image_url");
     expect(multiInvoice.order.products).toEqual([
       singleProduct,
       { title: "Priority Support", quantity: 1, unitAmount: "12.00" },
@@ -149,7 +148,6 @@ describe("resource routes", () => {
     const nullableMinimal: InvoiceProduct = {
       title: "Priority Support",
       description: null,
-      imageUrl: null,
       quantity: 1,
       unitAmount: "12.00",
     };
@@ -167,7 +165,6 @@ describe("resource routes", () => {
     expect(Object.keys(strippedWire.products[1]!).sort()).toEqual(["quantity", "title", "unit_amount"]);
     // Caller objects remain unmutated.
     expect(nullableMinimal.description).toBeNull();
-    expect(nullableMinimal.imageUrl).toBeNull();
 
     const legacyInvoice = await client.invoices.create({
       projectId: "prj_1",
@@ -192,5 +189,6 @@ describe("resource routes", () => {
 
     expectTypeOf<CreateInvoiceParams["products"]>().toEqualTypeOf<InvoiceProduct[] | null | undefined>();
     expectTypeOf<Order["products"]>().toEqualTypeOf<InvoiceProduct[] | undefined>();
+    expectTypeOf<keyof InvoiceProduct>().toEqualTypeOf<"title" | "description" | "quantity" | "unitAmount">();
   });
 });
