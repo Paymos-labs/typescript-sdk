@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-11-23
+
+- feat(platform): integrate pending main WIP — drop fiat_exchange_rates/VES, blockchain/worker fix batches 1-7, compact auth email layout, status-worker, plugins, forge and docs
+
 ## [2.7.1] - 2026-11-17
 
 - refactor(checkout): remove product images from invoice products

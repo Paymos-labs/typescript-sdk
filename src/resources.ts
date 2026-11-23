@@ -247,7 +247,9 @@ function assertMaxPages(maxPages: number): void {
 
 function normalizeInvoiceProduct(product: InvoiceProduct): InvoiceProduct {
   if (product === null || typeof product !== "object") return product;
-  const normalized: InvoiceProduct = { ...product };
+  const normalized = { ...product } as InvoiceProduct & Record<string, unknown>;
   if (normalized.description == null) delete normalized.description;
+  delete normalized.imageUrl;
+  delete normalized.image_url;
   return normalized;
 }

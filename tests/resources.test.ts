@@ -191,4 +191,71 @@ describe("resource routes", () => {
     expectTypeOf<Order["products"]>().toEqualTypeOf<InvoiceProduct[] | undefined>();
     expectTypeOf<keyof InvoiceProduct>().toEqualTypeOf<"title" | "description" | "quantity" | "unitAmount">();
   });
+
+  it("strips retired imageUrl/image_url keys from dynamic invoice products without mutating caller objects or stripping extra keys (BUG-1394)", async () => {
+    const vectors = contract.vectors.invoices;
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify(vectors.create_multi_product.response), { status: 201 }),
+    );
+    const client = new Paymos({
+      apiKey: "pk_test_key",
+      apiSecret: "sk_test_secret",
+      fetch: fetchMock,
+      retry: false,
+    });
+
+    const dynamicProductA = {
+      title: "Studio Pro",
+      description: "One-month access",
+      quantity: 2,
+      unitAmount: "24.50",
+      imageUrl: "https://cdn.example/retired.png",
+      sku: "SKU-001",
+    };
+    const dynamicProductB = {
+      title: "Priority Support",
+      description: null,
+      quantity: 1,
+      unitAmount: "12.00",
+      image_url: null,
+      imageUrl: "https://cdn.example/retired-2.png",
+      customTag: "keep-me",
+    };
+    const snapshotA = JSON.stringify(dynamicProductA);
+    const snapshotB = JSON.stringify(dynamicProductB);
+
+    await client.invoices.create({
+      projectId: "prj_1",
+      amount: "59.00",
+      currency: "USD",
+      externalOrderId: "order-legacy-image-strip",
+      products: [dynamicProductA as unknown as InvoiceProduct, dynamicProductB as unknown as InvoiceProduct],
+    });
+
+    const wireBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      products: Array<Record<string, unknown>>;
+    };
+    expect(wireBody.products).toEqual([
+      {
+        title: "Studio Pro",
+        description: "One-month access",
+        quantity: 2,
+        unit_amount: "24.50",
+        sku: "SKU-001",
+      },
+      {
+        title: "Priority Support",
+        quantity: 1,
+        unit_amount: "12.00",
+        custom_tag: "keep-me",
+      },
+    ]);
+    for (const product of wireBody.products) {
+      expect(Object.hasOwn(product, "image_url")).toBe(false);
+      expect(Object.hasOwn(product, "imageUrl")).toBe(false);
+    }
+    // Caller objects remain byte-for-byte unmutated.
+    expect(JSON.stringify(dynamicProductA)).toBe(snapshotA);
+    expect(JSON.stringify(dynamicProductB)).toBe(snapshotB);
+  });
 });
